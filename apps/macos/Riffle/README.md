@@ -1,0 +1,67 @@
+# Riffle
+
+Riffle is a macOS menu bar app that searches the email index.
+
+## Requirements
+
+- macOS 26 or later
+- Xcode 26 or later
+- An Apple Development certificate. With ad-hoc signing, each build has a new signature, and macOS asks for Keychain access again.
+
+## Build and install
+
+1. Install XcodeGen and just:
+
+   ```sh
+   brew install xcodegen just
+   ```
+
+2. From the repository root, build and install:
+
+   ```sh
+   just riffle
+   ```
+
+The `riffle` recipe does these steps:
+
+1. If `Local.xcconfig` does not exist, it makes the file with the team ID from your Apple Development certificate. To use a different team, edit `DEVELOPMENT_TEAM` in `Local.xcconfig`.
+2. It makes the Xcode project with XcodeGen.
+3. It builds a Release build.
+4. It quits Riffle if Riffle runs.
+5. It replaces `/Applications/Riffle.app` with the new build.
+6. It opens the new build.
+
+To work in Xcode, run `just riffle` one time to make `Local.xcconfig`. Then run `xcodegen` in this folder, and open `Riffle.xcodeproj`. You must run `xcodegen` again after you add or remove a file.
+
+## First start
+
+1. Open Riffle. The envelope icon shows in the menu bar.
+2. Click the icon. The setup screen opens.
+3. Enter the search URL. Get it from the infrastructure output:
+
+   ```sh
+   cd infra && tofu output -raw search_url
+   ```
+
+4. Enter the token from `~/.config/email-search/token`.
+5. Click **Test and save**.
+
+Riffle keeps the URL in its preferences and the token in the Keychain. To change them, right-click the icon and choose **Settings…**.
+
+To start Riffle at login, add it in System Settings > General > Login Items.
+
+## Use
+
+- Press ⌥⌘E, or click the icon, to open the panel.
+- Type a search and press Return. Claude reads the search and shows it as a sentence of filters.
+- Click a filter in the sentence to change it. A filter change searches again without Claude.
+- Press ↓ to go to the results. Press Return, or click a result, to open the thread in Gmail.
+- Press Esc to close the panel.
+
+## Tests
+
+The logic that does not need the UI is in the RiffleKit package:
+
+```sh
+cd RiffleKit && swift test
+```

@@ -1,0 +1,56 @@
+# XcodeGen project. Run `xcodegen` in this directory to make Riffle.xcodeproj.
+name: Riffle
+options:
+  bundleIdPrefix: com.gstark
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Local.xcconfig
+  Release: Local.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
+  RiffleKit:
+    path: RiffleKit
+targets:
+  Riffle:
+    type: application
+    platform: macOS
+    sources: [Riffle]
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: RiffleKit
+    info:
+      path: Riffle/Info.plist
+      properties:
+        CFBundleDisplayName: Riffle
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.productivity
+        # An agent app: no Dock icon and no menu bar menus.
+        LSUIElement: true
+    entitlements:
+      path: Riffle/Riffle.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gstark.riffle
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        ENABLE_HARDENED_RUNTIME: YES
+schemes:
+  Riffle:
+    build:
+      targets:
+        Riffle: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,8 @@
+Riffle.xcodeproj/
+Local.xcconfig
+# XcodeGen writes these from project.yml.
+Riffle/Info.plist
+Riffle/Riffle.entitlements
+.build/
+build/
+.swiftpm/

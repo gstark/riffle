@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+*.db
+*.db-*
+
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.log
+*.pid
+.spike/
+
+# Local planning notes.
+PLAN.md
+docs/superpowers/
+
+# Local values. The bootstrap stack writes backend.hcl.
+infra/backend.hcl
+infra/terraform.tfvars
