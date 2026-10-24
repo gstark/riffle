@@ -74,6 +74,15 @@ To start Riffle at login, add it in System Settings > General > Login Items.
 - Press ↓ to go to the results. Press Return, or click a result, to open the thread in Gmail.
 - Press Esc to close the panel.
 
+## App icon
+
+`Icon/build_icon.py` draws the app icon. It writes `Icon/icon.svg` and all sizes into `Riffle/Assets.xcassets/AppIcon.appiconset`. To change the icon, edit the script and run it:
+
+```sh
+pip install resvg-py
+python3 Icon/build_icon.py
+```
+
 ## Tests
 
 The logic that does not need the UI is in the RiffleKit package:

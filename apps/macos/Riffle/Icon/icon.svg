@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#2E5AA8"/>
+    <stop offset="1" stop-color="#142A55"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="0.5" cy="0.18" r="0.75">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+    <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="drop" x="-30%" y="-30%" width="160%" height="170%">
+    <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0A1A3A" flood-opacity="0.38"/>
+  </filter>
+  <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+</defs>
+<g clip-path="url(#sq)">
+  <rect x="100" y="100" width="824" height="824" fill="url(#field)"/>
+  <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+  <g transform="translate(26 34)">
+<g transform="rotate(-22 500 900)">
+<rect x="265.0" y="392.0" width="470" height="312" rx="30" fill="#5F7FBF" filter="url(#drop)"/>
+<path d="M295.0 422.0 L500 566.72 L705.0 422.0" fill="none" stroke="#3F60A3" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g transform="rotate(-13 500 900)">
+<rect x="265.0" y="392.0" width="470" height="312" rx="30" fill="#87A1D6" filter="url(#drop)"/>
+<path d="M295.0 422.0 L500 566.72 L705.0 422.0" fill="none" stroke="#4C6CAC" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g transform="rotate(-4 500 900)">
+<rect x="265.0" y="392.0" width="470" height="312" rx="30" fill="#B3C6EB" filter="url(#drop)"/>
+<path d="M295.0 422.0 L500 566.72 L705.0 422.0" fill="none" stroke="#5574B2" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g transform="rotate(5 500 900)">
+<rect x="265.0" y="392.0" width="470" height="312" rx="30" fill="#DCE6F7" filter="url(#drop)"/>
+<path d="M295.0 422.0 L500 566.72 L705.0 422.0" fill="none" stroke="#5A77AC" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g transform="rotate(15 500 900)">
+<rect x="265.0" y="348.0" width="470" height="312" rx="30" fill="#FFFFFF" filter="url(#drop)"/>
+<path d="M295.0 378.0 L500 522.72 L705.0 378.0" fill="none" stroke="#1F3F7A" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="380" y1="598.0" x2="620" y2="598.0" stroke="#2E5AA8" stroke-width="15" stroke-linecap="round" stroke-dasharray="0.1 30"/>
+</g>
+  </g>
+</g>
+<rect x="100.5" y="100.5" width="823" height="823" rx="184.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="2"/>
+</svg>
