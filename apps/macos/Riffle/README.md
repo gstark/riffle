@@ -31,6 +31,22 @@ The `riffle` recipe does these steps:
 5. It replaces `/Applications/Riffle.app` with the new build.
 6. It opens the new build.
 
+## Install with Homebrew
+
+```sh
+brew install gstark/tap/riffle
+```
+
+To publish a new release, run `just homebrew` from the repository root. The recipe does these steps:
+
+1. It builds a Release build.
+2. It publishes the build as a GitHub release of gstark/riffle.
+3. It writes `Casks/riffle.rb` in the gstark/tap tap, and then commits and pushes the cask.
+
+The working tree must be clean. The gstark/tap tap must be installed with `brew tap gstark/tap`.
+
+## Work in Xcode
+
 To work in Xcode, run `just riffle` one time to make `Local.xcconfig`. Then run `xcodegen` in this folder, and open `Riffle.xcodeproj`. You must run `xcodegen` again after you add or remove a file.
 
 ## First start
