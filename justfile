@@ -1,13 +1,27 @@
 default:
     @just --list
 
-# Build and push the search image, then apply the infrastructure. tofu asks before it applies.
+# Build the sync Lambda bundle and apply the infrastructure. tofu asks before it applies.
+deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export AWS_PROFILE="${AWS_PROFILE:-automation}"
+    if [[ ! -f infra/backend.hcl ]]; then
+        echo "infra/backend.hcl is missing. See README.md, Infrastructure." >&2
+        exit 1
+    fi
+    tofu -chdir=infra init -backend-config=backend.hcl -input=false >/dev/null
+    npm run build:lambda
+    tofu -chdir=infra apply
+
+# Build and push the search image, then deploy.
 deploy-search:
     #!/usr/bin/env bash
     set -euo pipefail
     export AWS_PROFILE="${AWS_PROFILE:-automation}"
+    tofu -chdir=infra init -backend-config=backend.hcl -input=false >/dev/null
     scripts/build-search-image.sh
-    tofu -chdir=infra apply
+    just deploy
 
 # Build a signed Release Riffle.app into apps/macos/Riffle/build.
 riffle-build:

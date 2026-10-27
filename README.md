@@ -29,12 +29,10 @@ tofu apply
 
 Copy `infra/terraform.tfvars.example` to `infra/terraform.tfvars` and set the mailbox and the alert address. Git ignores `terraform.tfvars`.
 
-Then apply the main stack:
+Then apply the main stack. The recipe initializes the backend, builds the sync Lambda bundle, and runs `tofu apply`:
 
 ```sh
-cd infra
-tofu init -backend-config=backend.hcl
-tofu apply
+just deploy
 ```
 
 The bootstrap stack keeps its state in `infra/bootstrap/terraform.tfstate`. Git ignores that file. If you lose it, run `tofu import` on the state bucket.
@@ -65,12 +63,13 @@ You can stop the backfill and run it again. It skips messages that are already i
 
 ## Incremental sync
 
-A Lambda function runs every 5 minutes. It copies new messages, label changes, and deletions from Gmail to S3. Build the bundle before each apply:
+A Lambda function runs every 5 minutes. It copies new messages, label changes, and deletions from Gmail to S3. Deploy a change to it, or to the infrastructure, with:
 
 ```sh
-npm run build:lambda
-cd infra && tofu apply
+just deploy
 ```
+
+The recipe builds the bundle, initializes the backend, and runs `tofu apply`. To deploy the search service, run `just deploy-search` instead. It also pushes the search image.
 
 Run a sync by hand:
 
