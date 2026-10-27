@@ -160,3 +160,46 @@ describe("newestMessageDate", () => {
     expect(await newestMessageDate(table)).toBeNull();
   });
 });
+
+describe("searchTable with a quoted phrase", () => {
+  it("keeps only the messages that have the words in that order, in any case", async () => {
+    await add([
+      { id: "duet", subject: "You're off the Claude Duet waitlist", body: "Your access is ready" },
+      { id: "both", subject: "Duet with Claude", body: "Claude and a duet, but not together" },
+      { id: "team", subject: "News from the Claude Team", body: "Opus 4.7 and routines" },
+    ]);
+
+    expect(await run({ text: '"claude duet"', vector: null })).toEqual(["duet"]);
+    expect(await run({ text: '"CLAUDE DUET"', vector: null })).toEqual(["duet"]);
+  });
+
+  it("needs every phrase and ranks the other words", async () => {
+    await add([
+      { id: "a", subject: "Claude Duet", body: "waitlist open" },
+      { id: "b", subject: "Claude Duet", body: "TestFlight build" },
+      { id: "c", subject: "Claude Code", body: "waitlist open" },
+    ]);
+
+    expect(await run({ text: '"claude duet" testflight', vector: null })).toEqual(["b", "a"]);
+    expect(await run({ text: '"claude duet" "testflight build"', vector: null })).toEqual(["b"]);
+  });
+
+  it("skips a stop word in a phrase but keeps its place", async () => {
+    await add([
+      { id: "with", subject: "Claude the Duet", body: "" },
+      { id: "without", subject: "Claude Duet", body: "" },
+      { id: "other", subject: "Claude a Duet", body: "" },
+    ]);
+
+    expect((await run({ text: '"claude the duet"', vector: null })).sort()).toEqual(["other", "with"]);
+  });
+
+  it("sorts phrase matches by date when the query asks for it", async () => {
+    await add([
+      { id: "old", subject: "Claude Duet", date: "2020-01-01T00:00:00.000Z" },
+      { id: "new", subject: "Claude Duet", date: "2024-01-01T00:00:00.000Z" },
+    ]);
+
+    expect(await run({ text: '"claude duet"', vector: null, sort: "newest" })).toEqual(["new", "old"]);
+  });
+});

@@ -86,6 +86,31 @@ describe("createSearch", () => {
     });
   });
 
+  it("keeps a quoted phrase out of Claude's reading and searches for it as written", async () => {
+    const queries: string[] = [];
+    const search = await setup(async ({ query }) => {
+      queries.push(query);
+      return { ...reading, text: "", from: ["amazon"] };
+    });
+
+    const response = await search({ q: '"your ORDER" from amazon' }, 20);
+
+    expect(queries).toEqual(["from amazon"]);
+    expect(response.query).toEqual({ ...reading, text: '"your ORDER"', from: ["amazon"], source: "claude" });
+    expect(response.results.map((result) => result.id)).toEqual(["a"]);
+  });
+
+  it("does not call Claude when the query is only a quoted phrase", async () => {
+    const search = await setup(async () => {
+      throw new Error("Claude must not be called");
+    });
+
+    const response = await search({ q: '"pizza on friday"' }, 20);
+
+    expect(response.query).toEqual({ ...reading, text: '"pizza on friday"', from: [], source: "filters" });
+    expect(response.results.map((result) => result.id)).toEqual(["b"]);
+  });
+
   it("searches the plain text when the parser fails", async () => {
     const search = await setup(async () => {
       throw new Error("timeout");
@@ -122,6 +147,15 @@ describe("createSearch with exact filters", () => {
 
     expect(response.query).toEqual({ ...filters, text: "invoice", source: "filters" });
     expect(response.results.map((result) => result.id)).toEqual(["a"]);
+  });
+
+  it("holds the results to a quoted phrase in the text", async () => {
+    const search = await setup(noClaude);
+
+    const response = await search({ filters: { ...filters, text: '"pizza invoice"', labels: [] } }, 20);
+
+    expect(response.results).toEqual([]);
+    expect((await search({ filters: { ...filters, text: '"your order"', labels: [] } }, 20)).results.map((r) => r.id)).toEqual(["a"]);
   });
 
   it("sorts by newest when there is no text to rank against", async () => {

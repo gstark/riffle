@@ -36,26 +36,39 @@ export async function upsertRows(table: lancedb.Table, rows: IndexRow[]): Promis
     .execute(lancedb.makeArrowTable(rows, { schema }));
 }
 
-/** Creates each index that does not exist yet. */
+/**
+ * The full-text index, with token positions for quoted phrases. The first text index, `text_idx`, had no positions:
+ * the JS binding leaves `withPosition` unset and Lance then builds without them. The new name lets
+ * ensureIndexes tell the two apart and replace the old one.
+ */
+export const TEXT_INDEX = "text_phrase_idx";
+const OLD_TEXT_INDEX = "text_idx";
+
+/** Creates each index that does not exist yet, and replaces the text index that has no positions. */
 export async function ensureIndexes(table: lancedb.Table, log: (message: string) => void): Promise<void> {
   const rowCount = await table.countRows();
   if (rowCount === 0) return;
 
-  const wanted: [string, lancedb.Index][] = [
+  const wanted: [string, lancedb.Index, string?][] = [
     ["id", lancedb.Index.btree()],
     ["date", lancedb.Index.btree()],
     ["labels", lancedb.Index.labelList()],
     ["fromKey", lancedb.Index.fm()],
     ["toKey", lancedb.Index.fm()],
-    ["text", lancedb.Index.fts({ stem: true, removeStopWords: true })],
+    ["text", lancedb.Index.fts({ withPosition: true, stem: true, removeStopWords: true }), TEXT_INDEX],
   ];
   if (rowCount >= VECTOR_INDEX_MIN_ROWS) wanted.push(["vector", lancedb.Index.ivfPq({ distanceType: "cosine" })]);
 
-  const existing = new Set((await table.listIndices()).flatMap((index) => index.columns));
-  for (const [column, config] of wanted) {
-    if (existing.has(column)) continue;
-    log(`Creating the ${column} index`);
-    await table.createIndex(column, { config });
+  const existing = new Set((await table.listIndices()).map((index) => index.name));
+  for (const [column, config, name = `${column}_idx`] of wanted) {
+    if (existing.has(name)) continue;
+    log(`Creating the ${name} index`);
+    await table.createIndex(column, { config, name });
+  }
+  // The new text index is in place, so searches keep working while the old one goes.
+  if (existing.has(OLD_TEXT_INDEX)) {
+    log(`Dropping the ${OLD_TEXT_INDEX} index, which has no positions`);
+    await table.dropIndex(OLD_TEXT_INDEX);
   }
 }
 

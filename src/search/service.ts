@@ -3,7 +3,8 @@
 import type * as lancedb from "@lancedb/lancedb";
 import type { Label } from "../shared/storage.ts";
 import type { Embed } from "./embed.ts";
-import { parseQuery, type ReadQuery, type Sort, type Source } from "./parse-query.ts";
+import { parseQuery, plainQuery, type ParsedQuery, type ReadQuery, type Sort, type Source } from "./parse-query.ts";
+import { joinText, splitPhrases } from "./phrase.ts";
 import { exactQuery, type SearchInput } from "./request.ts";
 import { searchTable } from "./search.ts";
 import { buildWhere } from "./where.ts";
@@ -66,21 +67,35 @@ export const labelList = (labels: Label[]): LabelListItem[] =>
   labels.map(({ name, type }) => ({ name, type })).sort((a, b) => a.name.localeCompare(b.name));
 
 export function createSearch(deps: SearchDeps): (input: SearchInput, limit: number) => Promise<SearchResponse> {
+  /**
+   * Claude reads only the words outside the quotes. The quoted phrases go back into the text as written,
+   * so the response and a later exact-filter request carry them. With nothing outside the quotes,
+   * there is nothing to read, and the request itself has set the filters.
+   */
+  const readQuery = async (q: string, labels: Label[]): Promise<ParsedQuery> => {
+    const { phrases, words } = splitPhrases(q);
+    if (phrases.length === 0) {
+      return parseQuery(q, { read: deps.read, labels, now: deps.now(), timeZone: deps.timeZone, log: deps.log });
+    }
+    const read = words
+      ? await parseQuery(words, { read: deps.read, labels, now: deps.now(), timeZone: deps.timeZone, log: deps.log })
+      : { ...plainQuery(""), source: "filters" as const };
+    return { ...read, text: joinText(phrases, read.text) };
+  };
+
   return async (input, limit) => {
     const labels = await deps.getLabels();
     const nameById = new Map(labels.map((label) => [label.id, label.name]));
 
     let started = performance.now();
-    const read =
-      "q" in input
-        ? await parseQuery(input.q, { read: deps.read, labels, now: deps.now(), timeZone: deps.timeZone, log: deps.log })
-        : exactQuery(input.filters, labels);
+    const read = "q" in input ? await readQuery(input.q, labels) : exactQuery(input.filters, labels);
     // With no topic, nothing ranks the messages, so the newest come first.
     const query = read.text === "" && read.sort === "relevance" ? { ...read, sort: "newest" as const } : read;
     const parseMs = Math.round(performance.now() - started);
 
     started = performance.now();
-    const vector = query.text ? await deps.embed(query.text) : null;
+    // A quoted phrase searches the full-text index alone, so it needs no embedding.
+    const vector = query.text && splitPhrases(query.text).phrases.length === 0 ? await deps.embed(query.text) : null;
     const embedMs = Math.round(performance.now() - started);
 
     started = performance.now();

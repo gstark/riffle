@@ -70,6 +70,7 @@ To start Riffle at login, add it in System Settings > General > Login Items.
 
 - Press ⌥⌘E, or click the icon, to open the panel.
 - Type a search and press Return. Claude reads the search and shows it as a sentence of filters.
+- Put words in quotes, such as `"Claude Duet"`, to find mail that has those words in that order. Case does not matter. Claude reads only the words outside the quotes.
 - Click a filter in the sentence to change it. A filter change searches again without Claude.
 - Press ↓ to go to the results. Press Return, or click a result, to open the thread in Gmail.
 - Press Esc to close the panel.

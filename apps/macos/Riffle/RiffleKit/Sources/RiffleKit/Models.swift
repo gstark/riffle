@@ -74,7 +74,7 @@ public enum QuerySource: String, Sendable, Codable {
     case claude
     /// Claude failed. The search used the text as typed.
     case plain
-    /// The request had exact filters.
+    /// The request had exact filters, or only quoted phrases with nothing for Claude to read.
     case filters
 }
 

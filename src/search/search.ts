@@ -1,7 +1,8 @@
 // Runs one search on the messages table.
 
-import type * as lancedb from "@lancedb/lancedb";
+import * as lancedb from "@lancedb/lancedb";
 import type { Sort } from "./parse-query.ts";
+import { splitPhrases } from "./phrase.ts";
 import { arrowList } from "./schema.ts";
 
 /** A search result before the API adds label names and the Gmail link. */
@@ -18,9 +19,9 @@ export interface Hit {
 }
 
 export interface SearchRequest {
-  /** Topic words. Empty for a filter-only search. */
+  /** Topic words, with quoted phrases that must appear as written. Empty for a filter-only search. */
   text: string;
-  /** Embedding of `text`. Null when `text` is empty. */
+  /** Embedding of `text`. Null when `text` is empty or has a quoted phrase. */
   vector: number[] | null;
   where: string;
   sort: Sort;
@@ -52,37 +53,51 @@ function onePerThread(hits: Hit[]): Hit[] {
   return hits.filter((hit) => !seen.has(hit.threadId) && seen.add(hit.threadId));
 }
 
+/** Every phrase must appear. The other words raise the score of the messages that have them. */
+function phraseQuery(phrases: string[], words: string): lancedb.FullTextQuery {
+  const parts: [lancedb.Occur, lancedb.FullTextQuery][] = phrases.map((phrase) => [
+    lancedb.Occur.Must,
+    new lancedb.PhraseQuery(phrase, "text"),
+  ]);
+  if (words) parts.push([lancedb.Occur.Should, new lancedb.MatchQuery(words, "text")]);
+  return new lancedb.BooleanQuery(parts);
+}
+
 export async function searchTable(
   table: lancedb.Table,
   { text, vector, where, sort, limit }: SearchRequest,
   reranker: lancedb.rerankers.Reranker,
 ): Promise<Hit[]> {
-  let hits: Hit[];
-  if (text && vector) {
-    const rows: Record<string, unknown>[] = await table
+  const { phrases, words } = splitPhrases(text);
+  const pool = sort === "relevance" ? limit * ROWS_PER_RESULT : DATE_SORT_POOL;
+  let rows: Record<string, unknown>[];
+  if (phrases.length > 0) {
+    // Only the full-text index can hold a message to the exact words. The vector side would let others in.
+    rows = await table.query().fullTextSearch(phraseQuery(phrases, words)).where(where).select(COLUMNS).limit(pool).toArray();
+  } else if (words && vector) {
+    rows = await table
       .query()
       .nearestTo(vector)
       .distanceType("cosine")
-      .fullTextSearch(text, { columns: "text" })
+      .fullTextSearch(words, { columns: "text" })
       .where(where)
       .rerank(reranker)
       .select(COLUMNS)
-      .limit(sort === "relevance" ? limit * ROWS_PER_RESULT : DATE_SORT_POOL)
+      .limit(pool)
       .toArray();
-    hits = rows.map(toHit);
-    if (sort !== "relevance") {
-      const direction = sort === "oldest" ? 1 : -1;
-      hits.sort((a, b) => direction * (a.date.getTime() - b.date.getTime()));
-    }
   } else {
-    const rows: Record<string, unknown>[] = await table
+    rows = await table
       .query()
       .where(where)
       .orderBy({ columnName: "date", ascending: sort === "oldest" })
       .select(COLUMNS)
       .limit(limit * ROWS_PER_RESULT)
       .toArray();
-    hits = rows.map(toHit);
+  }
+  const hits = rows.map(toHit);
+  if (sort !== "relevance") {
+    const direction = sort === "oldest" ? 1 : -1;
+    hits.sort((a, b) => direction * (a.date.getTime() - b.date.getTime()));
   }
   return onePerThread(hits).slice(0, limit);
 }

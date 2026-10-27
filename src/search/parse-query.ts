@@ -14,7 +14,10 @@ const TIMEOUT_MS = 10_000;
 
 export type Sort = "relevance" | "newest" | "oldest";
 
-/** Who decided the filters: Claude, nobody (Claude failed, plain text), or the request (exact filters). */
+/**
+ * Who decided the filters: Claude, nobody (Claude failed, plain text), or the request
+ * (exact filters, or only quoted phrases with nothing for Claude to read).
+ */
 export type Source = "claude" | "plain" | "filters";
 
 export function outputSchema(labelNames: string[]) {
@@ -98,7 +101,7 @@ Today is ${weekday}, ${today}. The user's time zone is ${timeZone}.
 
 Fields:
 - text: the topic words to match in the message. Remove the words that you turned into filters. Remove words such as "email", "emails", "message", "find", and "show". Use an empty string when no topic words are left.
-- from: parts of sender names, email addresses, or domains, in lower case, such as "amazon" or "jane". Use the shortest part that identifies the sender. A person or company name with no word such as "to", "about", or "for" before it is the sender, in any position in the query. For a full name, use the family name only, because the sender can show as "Smith, John" or "jsmith@example.com".
+- from: parts of sender names, email addresses, or domains, in lower case, such as "amazon" or "jane". Use it only when the query says who sent the message, with a word such as "from", "by", or "sent by". A name with no such word stays in text, because it can be a product or a topic: "claude duet" is a product, not mail from Claude. Use the shortest part that identifies the sender. For a full name, use the family name only, because the sender can show as "Smith, John" or "jsmith@example.com".
 - to: the same as from, for recipients. Use it only when the query says who received the message.
 - after: the first day to include, as YYYY-MM-DD. Null when there is no start date.
 - before: the first day to leave out, as YYYY-MM-DD. Null when there is no end date.
@@ -128,8 +131,9 @@ Examples. In these examples, today is Thursday, 2026-10-22.
 - "what did I send to sarah about the wedding": text "wedding", to ["sarah"], labels ["SENT"]
 - "spam about crypto": text "crypto", includeSpamTrash true
 - "the first email from delta": text "", from ["delta"], sort "oldest"
-- "2024 John Smith Thanksgiving": text "thanksgiving", from ["smith"], after "2024-01-01", before "2025-01-01"
-- "chase statement march": text "statement", from ["chase"], after "2026-03-01", before "2026-04-01"
+- "2024 Thanksgiving from John Smith": text "thanksgiving", from ["smith"], after "2024-01-01", before "2025-01-01"
+- "chase statement march": text "chase statement", after "2026-03-01", before "2026-04-01"
+- "claude duet": text "claude duet"
 - "tax documents": text "tax documents"`;
 }
 
