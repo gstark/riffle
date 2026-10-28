@@ -1,7 +1,7 @@
 // Builds receipts table rows.
 
 import type { MessageMeta } from "../shared/storage.ts";
-import type { ReceiptOutput } from "./extract-receipt.ts";
+import type { ExtractionOutput, ReceiptOutput } from "./extract-receipt.ts";
 import type { ReceiptRow } from "./schema.ts";
 import type { ReceiptEmail } from "./text.ts";
 
@@ -9,7 +9,7 @@ import type { ReceiptEmail } from "./text.ts";
  * Version of the filter rules and the prompt. Increase it after a change to either:
  * the worker then processes the messages with older rows again.
  */
-export const RECEIPTS_VERSION = 2;
+export const RECEIPTS_VERSION = 3;
 
 /** Digits after the decimal point: 2 for USD, 0 for JPY, 3 for KWD. 2 when the code is missing or not valid. */
 function currencyDigits(currency: string | null): number {
@@ -51,9 +51,10 @@ const EMPTY_FIELDS = {
   trackingNumber: null,
 } as const;
 
-function messageFields(meta: MessageMeta, email: ReceiptEmail, now: Date) {
+function messageFields(meta: MessageMeta, email: ReceiptEmail, n: number, now: Date) {
   return {
-    id: meta.id,
+    id: `${meta.id}:${n}`,
+    messageId: meta.id,
     threadId: meta.threadId,
     date: new Date(meta.internalDate),
     from: email.from,
@@ -63,15 +64,18 @@ function messageFields(meta: MessageMeta, email: ReceiptEmail, now: Date) {
   };
 }
 
-/** Row for a message that the filter rejected. */
-export function filterRow(meta: MessageMeta, email: ReceiptEmail, now: Date): ReceiptRow {
-  return { ...messageFields(meta, email, now), kind: "none", decidedBy: "filter", confidence: 1, ...EMPTY_FIELDS };
+/** The row of a message without receipts. */
+function noneRow(meta: MessageMeta, email: ReceiptEmail, decidedBy: string, now: Date): ReceiptRow {
+  return { ...messageFields(meta, email, 0, now), kind: "none", decidedBy, confidence: 1, ...EMPTY_FIELDS };
 }
 
-/** Row for a message that the model read. */
-export function modelRow(
+/** Row for a message that the filter rejected. */
+export const filterRow = (meta: MessageMeta, email: ReceiptEmail, now: Date) => noneRow(meta, email, "filter", now);
+
+function receiptRow(
   meta: MessageMeta,
   email: ReceiptEmail,
+  n: number,
   output: ReceiptOutput,
   modelId: string,
   now: Date,
@@ -79,7 +83,7 @@ export function modelRow(
   const currency = output.currency?.toUpperCase() ?? null;
   const money = (amount: number | null) => toMinor(amount, currency);
   return {
-    ...messageFields(meta, email, now),
+    ...messageFields(meta, email, n, now),
     kind: output.kind,
     decidedBy: modelId,
     confidence: Math.min(1, Math.max(0, output.confidence)),
@@ -109,4 +113,16 @@ export function modelRow(
     carrier: output.carrier,
     trackingNumber: output.trackingNumber,
   };
+}
+
+/** Rows for a message that the model read: one for each receipt, or one "none" row when it found none. */
+export function modelRows(
+  meta: MessageMeta,
+  email: ReceiptEmail,
+  output: ExtractionOutput,
+  modelId: string,
+  now: Date,
+): ReceiptRow[] {
+  if (output.receipts.length === 0) return [noneRow(meta, email, modelId, now)];
+  return output.receipts.map((receipt, n) => receiptRow(meta, email, n, receipt, modelId, now));
 }

@@ -1,10 +1,10 @@
 // The candidate receipt models on Bedrock. try-models.ts compares them on real mail.
-// Each model calls one forced tool whose input schema is ReceiptSchema. Claude structured output cannot take this
+// Each model calls one forced tool whose input schema is ExtractionSchema. Claude structured output cannot take this
 // schema: it allows at most 16 nullable fields.
 
 import { BedrockRuntimeClient, ConverseCommand, type ToolInputSchema } from "@aws-sdk/client-bedrock-runtime";
 import { z } from "zod";
-import { parseReceipt, ReceiptSchema, SYSTEM_PROMPT, type ReceiptModel } from "./extract-receipt.ts";
+import { ExtractionSchema, parseExtraction, SYSTEM_PROMPT, type ReceiptModel } from "./extract-receipt.ts";
 
 /** The US inference profile. This account can call Haiku 5.5 only from us-east-1. */
 export const HAIKU_5_5_MODEL = "us.anthropic.claude-haiku-5-5";
@@ -13,11 +13,11 @@ const HAIKU_5_5_REGION = "us-east-1";
 export const HAIKU_4_5_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 
 const MAX_TOKENS = 4_000;
-const TOOL_NAME = "record_receipt";
-const TOOL_DESCRIPTION = "Records the purchase in the email.";
+const TOOL_NAME = "record_receipts";
+const TOOL_DESCRIPTION = "Records the purchases in the email.";
 
 function inputSchema(): ToolInputSchema {
-  const json = z.toJSONSchema(ReceiptSchema);
+  const json = z.toJSONSchema(ExtractionSchema);
   delete json.$schema;
   return { json: json as unknown as ToolInputSchema.JsonMember["json"] };
 }
@@ -42,7 +42,7 @@ function createConverseModel(id: string, client: BedrockRuntimeClient, temperatu
       );
       const toolUse = response.output?.message?.content?.find((block) => block.toolUse)?.toolUse;
       if (!toolUse) throw new Error(`${id} gave no output (stop reason ${response.stopReason})`);
-      return parseReceipt(toolUse.input);
+      return parseExtraction(toolUse.input);
     },
   };
 }

@@ -89,6 +89,8 @@ Riffle is the macOS menu bar app for the search API. See [apps/macos/Riffle/READ
 
 The receipts Lambda finds purchase emails (orders, subscription charges, refunds, and shipping notices) and writes their data to the `receipts` table in the index bucket. The indexer sends each new message to it. A keyword filter runs first, and only messages that pass go to the Bedrock model.
 
+The table has one row for each receipt. An email can have more than one receipt, for example an Amazon confirmation of two orders. Then each order gets its own row with its own total. The `messageId` column holds the Gmail message ID, and `id` is `<messageId>:<n>`. A message without receipts has one row with kind `none`.
+
 Process the last 24 months of archived mail one time:
 
 ```sh

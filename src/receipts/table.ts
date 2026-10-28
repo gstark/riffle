@@ -10,28 +10,32 @@ export async function openOrCreateReceipts(uri: string): Promise<lancedb.Table> 
   return db.createEmptyTable(RECEIPTS_TABLE, receiptsSchema);
 }
 
-/** The `version` of each ID that has a row. IDs without a row are not in the map. */
-export async function readVersions(table: lancedb.Table, ids: string[]): Promise<Map<string, number>> {
-  if (ids.length === 0) return new Map();
+/** The `version` of each message that has rows. Messages without rows are not in the map. */
+export async function readVersions(table: lancedb.Table, messageIds: string[]): Promise<Map<string, number>> {
+  if (messageIds.length === 0) return new Map();
   const rows: Record<string, unknown>[] = await table
     .query()
-    .where(`id IN (${ids.map(sqlString).join(", ")})`)
-    .select(["id", "version"])
+    .where(`messageId IN (${messageIds.map(sqlString).join(", ")})`)
+    .select(["messageId", "version"])
     .toArray();
-  return new Map(rows.map((row) => [String(row.id), Number(row.version)]));
+  return new Map(rows.map((row) => [String(row.messageId), Number(row.version)]));
 }
 
-/** Adds new rows and replaces existing rows with the same ID, in one table version. */
-export async function upsertReceipts(table: lancedb.Table, rows: ReceiptRow[]): Promise<void> {
-  if (rows.length === 0) return;
+/**
+ * Replaces all rows of the messages in `messageIds` with `rows`, in one table version. A message without new rows
+ * loses its old rows.
+ */
+export async function replaceReceipts(table: lancedb.Table, messageIds: string[], rows: ReceiptRow[]): Promise<void> {
+  if (messageIds.length === 0) return;
+  const where = `messageId IN (${messageIds.map(sqlString).join(", ")})`;
+  if (rows.length === 0) {
+    await table.delete(where);
+    return;
+  }
   await table
     .mergeInsert("id")
     .whenMatchedUpdateAll()
     .whenNotMatchedInsertAll()
+    .whenNotMatchedBySourceDelete({ where })
     .execute(lancedb.makeArrowTable(rows, { schema: receiptsSchema }));
-}
-
-export async function deleteReceipts(table: lancedb.Table, ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await table.delete(`id IN (${ids.map(sqlString).join(", ")})`);
 }

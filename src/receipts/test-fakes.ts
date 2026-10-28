@@ -1,6 +1,6 @@
 // Test helpers for the receipts code.
 
-import type { ReceiptOutput } from "./extract-receipt.ts";
+import type { ExtractionOutput, ReceiptOutput } from "./extract-receipt.ts";
 
 /** A complete Amazon order output. Override fields as needed. */
 export function receiptOutput(fields: Partial<ReceiptOutput> = {}): ReceiptOutput {
@@ -28,3 +28,6 @@ export function receiptOutput(fields: Partial<ReceiptOutput> = {}): ReceiptOutpu
     ...fields,
   };
 }
+
+/** Model output with the given receipts. */
+export const extraction = (...receipts: ReceiptOutput[]): ExtractionOutput => ({ receipts });

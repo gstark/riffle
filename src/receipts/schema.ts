@@ -1,4 +1,5 @@
-// LanceDB table of processed messages and the purchase data in them. Only the receipts Lambda writes it.
+// LanceDB table of processed messages and the purchase data in them. A message has one row for each receipt in it,
+// or one "none" row when it has no receipt. Only the receipts Lambda writes it.
 // It is in the same LanceDB store as the messages table (the index bucket).
 
 import { Field, Float64, Int32, Schema, TimestampMillisecond, Utf8 } from "apache-arrow";
@@ -11,6 +12,7 @@ const minorUnits = (name: string) => new Field(name, new Int32(), true);
 
 export const receiptsSchema = new Schema([
   text("id", false),
+  text("messageId", false),
   text("threadId", false),
   new Field("date", new TimestampMillisecond(), false),
   text("from", false),
@@ -42,7 +44,9 @@ export const receiptsSchema = new Schema([
 
 /** One row of the receipts table. Amounts are in minor units of `currency`. Dates without a time are "YYYY-MM-DD". */
 export type ReceiptRow = {
+  /** "<messageId>:<n>", where n is the position of the receipt in the message */
   id: string;
+  messageId: string;
   threadId: string;
   /** Gmail receive time */
   date: Date;

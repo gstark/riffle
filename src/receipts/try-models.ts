@@ -7,7 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { S3Client } from "@aws-sdk/client-s3";
 import { createS3Source } from "../search/source.ts";
 import { log, requireEnv } from "../shared/runtime.ts";
-import { modelInput, type ReceiptOutput } from "./extract-receipt.ts";
+import { modelInput, type ExtractionOutput } from "./extract-receipt.ts";
 import { passesFilter } from "./filter.ts";
 import { createHaiku45Model, createHaiku55Model } from "./models.ts";
 import { listRecentIds } from "./recent.ts";
@@ -26,7 +26,7 @@ interface Sample {
   subject: string;
   input: string;
 }
-type Result = { output: ReceiptOutput } | { error: string };
+type Result = { output: ExtractionOutput } | { error: string };
 
 function shuffle<T>(items: T[]): T[] {
   const copy = [...items];
@@ -40,7 +40,9 @@ function shuffle<T>(items: T[]): T[] {
 const senderDomain = (from: string) => /@([^>\s]+)/.exec(from)?.[1]?.toLowerCase() ?? from;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const compared = (result: Result) =>
-  "output" in result ? JSON.stringify(COMPARED.map((field) => result.output[field])) : `error: ${result.error}`;
+  "output" in result
+    ? JSON.stringify(result.output.receipts.map((receipt) => COMPARED.map((field) => receipt[field])))
+    : `error: ${result.error}`;
 const cell = (value: unknown) => String(value ?? "").replaceAll("|", "\\|").replaceAll("\n", " ");
 
 const s3 = new S3Client();
@@ -103,7 +105,7 @@ const summary = models.map((model, n) => {
   const errors = results.filter((result) => result && "error" in result).length;
   const missed = rows.filter((row) => {
     const result = row.results[n];
-    return !row.sample.passed && result !== undefined && "output" in result && result.output.kind !== "none";
+    return !row.sample.passed && result !== undefined && "output" in result && result.output.receipts.length > 0;
   }).length;
   return `- ${model.id}: ${errors} errors, ${missed} receipts in the rejected sample`;
 });
