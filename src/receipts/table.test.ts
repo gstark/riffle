@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { meta } from "../sync/test-fakes.ts";
-import { filterRow, modelRow } from "./row.ts";
+import { filterRow, modelRow, RECEIPTS_VERSION } from "./row.ts";
 import { openOrCreateReceipts, readVersions, upsertReceipts } from "./table.ts";
 import { receiptOutput } from "./test-fakes.ts";
 
@@ -27,7 +27,7 @@ describe("receipts table", () => {
       { ...modelRow(meta("b"), email, receiptOutput(), "m", now), version: 7 },
     ]);
 
-    expect(await readVersions(table, ["a", "b", "c"])).toEqual(new Map([["a", 1], ["b", 7]]));
+    expect(await readVersions(table, ["a", "b", "c"])).toEqual(new Map([["a", RECEIPTS_VERSION], ["b", 7]]));
     const rows = await table.query().where("id = 'b'").toArray();
     expect(rows[0]).toMatchObject({ kind: "order", total: 2345, discount: null, currency: "USD" });
   });

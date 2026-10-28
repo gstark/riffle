@@ -7,7 +7,7 @@ import { fakeSource, rawEmail } from "../search/test-fakes.ts";
 import type { MessageMeta } from "../shared/storage.ts";
 import { meta } from "../sync/test-fakes.ts";
 import type { ReceiptModel } from "./extract-receipt.ts";
-import { filterRow } from "./row.ts";
+import { filterRow, RECEIPTS_VERSION } from "./row.ts";
 import { openOrCreateReceipts, upsertReceipts } from "./table.ts";
 import { receiptOutput } from "./test-fakes.ts";
 import { processBatch, type ReceiptDeps } from "./worker.ts";
@@ -92,7 +92,7 @@ describe("processBatch", () => {
 
     await processBatch(["a"], deps);
 
-    expect((await rowsById(deps.table)).get("a")).toMatchObject({ kind: "order", version: 1 });
+    expect((await rowsById(deps.table)).get("a")).toMatchObject({ kind: "order", version: RECEIPTS_VERSION });
   });
 
   it("skips deleted messages and IDs without a meta", async () => {

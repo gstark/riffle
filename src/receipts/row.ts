@@ -9,7 +9,7 @@ import type { ReceiptEmail } from "./text.ts";
  * Version of the filter rules and the prompt. Increase it after a change to either:
  * the worker then processes the messages with older rows again.
  */
-export const RECEIPTS_VERSION = 1;
+export const RECEIPTS_VERSION = 2;
 
 /** Digits after the decimal point: 2 for USD, 0 for JPY, 3 for KWD. 2 when the code is missing or not valid. */
 function currencyDigits(currency: string | null): number {

@@ -60,7 +60,7 @@ Set kind:
 - subscription: a receipt for a charge of a recurring plan, such as a monthly renewal. A monthly or yearly invoice from a service is also a subscription.
 - refund: money returned to the buyer, including a return confirmation with a refund amount.
 - shipping: a shipped, out-for-delivery, or delivered notice for an order, also without amounts.
-- none: everything else, including ads, newsletters, abandoned carts, price alerts, price change notices, reminders of future charges, bills that are not paid yet, invoices that the reader sends to others, and money that the reader receives, such as payouts.
+- none: everything else, including ads, newsletters, abandoned carts, price alerts, price change notices, reminders of future charges, bills that are not paid yet, invoices that the reader sends to others, and money that the reader receives, such as payouts, free trials and other offers with no charge now, and scams. A scam claims to be from a known company but comes from a personal address, such as gmail.com or outlook.com.
 
 Rules:
 - Use only values that are in the email. Use null when a value is not there. Do not guess.
