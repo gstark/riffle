@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gmailIdFromMetaKey, metaKey, rawKey } from "./storage.ts";
+import { gmailIdFromMetaKey, gmailIdFromRawKey, metaKey, rawKey, recentRawPrefixes } from "./storage.ts";
 
 describe("rawKey", () => {
   it("partitions by UTC year and zero-padded month", () => {
@@ -26,5 +26,30 @@ describe("metaKey", () => {
 describe("gmailIdFromMetaKey", () => {
   it.each(["raw/2024/01/abc.eml", "meta/abc.txt", "meta/x/abc.json"])("rejects %s", (key: string) => {
     expect(gmailIdFromMetaKey(key)).toBeNull();
+  });
+});
+
+describe("gmailIdFromRawKey", () => {
+  it("round-trips through rawKey", () => {
+    expect(gmailIdFromRawKey(rawKey("abc", new Date("2024-03-09T00:00:00Z")))).toBe("abc");
+  });
+
+  it("returns null for keys outside raw/", () => {
+    expect(gmailIdFromRawKey("meta/abc.json")).toBeNull();
+    expect(gmailIdFromRawKey("raw/2024/03/")).toBeNull();
+  });
+});
+
+describe("recentRawPrefixes", () => {
+  it("lists the months up to the month of now, newest first, across a year boundary", () => {
+    expect(recentRawPrefixes(new Date("2026-02-15T00:00:00Z"), 3)).toEqual([
+      "raw/2026/02/",
+      "raw/2026/01/",
+      "raw/2025/12/",
+    ]);
+  });
+
+  it("uses UTC months", () => {
+    expect(recentRawPrefixes(new Date("2026-03-01T01:00:00+05:00"), 1)).toEqual(["raw/2026/02/"]);
   });
 });

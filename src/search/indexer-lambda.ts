@@ -5,8 +5,8 @@ import { SQSClient } from "@aws-sdk/client-sqs";
 import { z } from "zod";
 import { log, requireEnv } from "../shared/runtime.ts";
 import { createTitanEmbed } from "./embed.ts";
-import { drainQueue, indexBatch } from "./indexer.ts";
-import { createSqsQueue } from "./queue.ts";
+import { indexBatch } from "./indexer.ts";
+import { createSqsQueue, drainQueue, sendIds } from "./queue.ts";
 import { createS3Source } from "./source.ts";
 import { ensureIndexes, openOrCreateTable, optimize } from "./table.ts";
 
@@ -44,9 +44,19 @@ export async function handler(): Promise<void> {
     log,
   };
 
+  const sqs = new SQSClient();
+  const receiptsQueueUrl = requireEnv("RECEIPTS_QUEUE_URL");
   const { drained } = await drainQueue({
-    queue: createSqsQueue(new SQSClient(), requireEnv("QUEUE_URL")),
-    index: (ids) => indexBatch(ids, deps),
+    queue: createSqsQueue(sqs, requireEnv("QUEUE_URL")),
+    handle: async (ids) => {
+      const result = await indexBatch(ids, deps);
+      // New messages go on to receipt extraction. If this send fails, the run fails and the alarm fires.
+      // The rows are written already, so the next run does not send these IDs again: run enqueue-receipts.ts.
+      await sendIds(sqs, receiptsQueueUrl, [...result.addedIds]);
+      return result;
+    },
+    describe: (result) =>
+      `Indexed: ${result.addedIds.size} added, ${result.updated} updated, ${result.failedIds.size} failed`,
     deadline: started + RUN_MS,
     now: Date.now,
     log,

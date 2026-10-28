@@ -5,7 +5,6 @@ import type { MessageMeta } from "../shared/storage.ts";
 import { runPool } from "../sync/pool.ts";
 import type { Embed } from "./embed.ts";
 import { EMPTY_MESSAGE, extractMessage } from "./extract.ts";
-import type { Queue } from "./queue.ts";
 import { buildRow, embeddingInput } from "./row.ts";
 import type { IndexRow } from "./schema.ts";
 import type { MessageSource } from "./source.ts";
@@ -20,7 +19,8 @@ export interface IndexerDeps {
 }
 
 export interface BatchResult {
-  added: number;
+  /** IDs of the messages that got a new row. */
+  addedIds: Set<string>;
   updated: number;
   /** IDs to try again later. */
   failedIds: Set<string>;
@@ -49,7 +49,7 @@ export async function indexBatch(ids: string[], deps: IndexerDeps): Promise<Batc
   const unique = [...new Set(ids)];
   const existing = await readRows(deps.table, unique);
   const changed: IndexRow[] = [];
-  const result: BatchResult = { added: 0, updated: 0, failedIds: new Set() };
+  const result: BatchResult = { addedIds: new Set(), updated: 0, failedIds: new Set() };
 
   await runPool(unique, deps.concurrency, async (id) => {
     try {
@@ -61,7 +61,7 @@ export async function indexBatch(ids: string[], deps: IndexerDeps): Promise<Batc
       if (!row) {
         if (deleted) return;
         changed.push(await newRow(meta, deps));
-        result.added++;
+        result.addedIds.add(id);
       } else if (row.deleted !== deleted || !sameLabels(row.labels, meta.labelIds)) {
         changed.push({ ...row, labels: meta.labelIds, deleted });
         result.updated++;
@@ -74,36 +74,4 @@ export async function indexBatch(ids: string[], deps: IndexerDeps): Promise<Batc
 
   await upsertRows(deps.table, changed);
   return result;
-}
-
-/** IDs per table write. */
-const BATCH_IDS = 500;
-
-export interface DrainOptions {
-  queue: Queue;
-  index: (ids: string[]) => Promise<BatchResult>;
-  /** Stop receiving after this time, in epoch milliseconds. */
-  deadline: number;
-  now: () => number;
-  log: (message: string) => void;
-}
-
-/**
- * Indexes queue batches until the queue is empty or the deadline passes.
- * A queue message is deleted only when all of its IDs succeeded. The others come back after the visibility timeout.
- */
-export async function drainQueue({ queue, index, deadline, now, log }: DrainOptions): Promise<{ drained: boolean }> {
-  while (now() < deadline) {
-    const messages = await queue.receive(BATCH_IDS);
-    if (messages.length === 0) return { drained: true };
-
-    const result = await index(messages.flatMap((message) => message.ids));
-    const finished = messages.filter((message) => message.ids.every((id) => !result.failedIds.has(id)));
-    await queue.delete(finished.map((message) => message.receiptHandle));
-    log(
-      `Indexed: ${result.added} added, ${result.updated} updated, ${result.failedIds.size} failed ` +
-        `(${finished.length} of ${messages.length} queue messages done)`,
-    );
-  }
-  return { drained: false };
 }

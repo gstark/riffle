@@ -112,3 +112,37 @@ resource "aws_cloudwatch_metric_alarm" "search_errors" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
 }
+
+# Receipts: a message failed 5 times and is in the receipts dead-letter queue.
+resource "aws_cloudwatch_metric_alarm" "receipts_dlq" {
+  alarm_name          = "${var.name_prefix}-receipts-dlq"
+  alarm_description   = "A message failed receipt extraction 5 times and is in the receipts dead-letter queue."
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.receipts_dlq.name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "receipts_errors" {
+  alarm_name          = "${local.receipts_function_name}-errors"
+  alarm_description   = "The receipts Lambda failed in 2 of the last 3 five-minute periods."
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = aws_lambda_function.receipts.function_name }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 3
+  datapoints_to_alarm = 2
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  ok_actions          = [aws_sns_topic.alerts.arn]
+}

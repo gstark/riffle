@@ -54,3 +54,19 @@ export function gmailIdFromMetaKey(key: string): string | null {
   const match = /^meta\/([^/]+)\.json$/.exec(key);
   return match?.[1] ?? null;
 }
+
+/** Inverse of rawKey. Returns null for keys outside raw/. */
+export function gmailIdFromRawKey(key: string): string | null {
+  const match = /^raw\/\d{4}\/\d{2}\/([^/]+)\.eml$/.exec(key);
+  return match?.[1] ?? null;
+}
+
+/** The raw/ prefixes of the `months` UTC calendar months that end with the month of `now`, newest first. */
+export function recentRawPrefixes(now: Date, months: number): string[] {
+  return Array.from({ length: months }, (_, n) => {
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - n, 1));
+    const yyyy = month.getUTCFullYear().toString();
+    const mm = (month.getUTCMonth() + 1).toString().padStart(2, "0");
+    return `raw/${yyyy}/${mm}/`;
+  });
+}

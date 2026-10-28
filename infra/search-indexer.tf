@@ -62,6 +62,12 @@ resource "aws_iam_role_policy" "indexer" {
         Resource = aws_sqs_queue.index.arn
       },
       {
+        Sid      = "SendReceiptsQueue"
+        Effect   = "Allow"
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.receipts.arn
+      },
+      {
         Sid      = "Embed"
         Effect   = "Allow"
         Action   = "bedrock:InvokeModel"
@@ -99,9 +105,10 @@ resource "aws_lambda_function" "indexer" {
 
   environment {
     variables = {
-      ARCHIVE_BUCKET = aws_s3_bucket.archive.id
-      INDEX_BUCKET   = aws_s3_bucket.index.id
-      QUEUE_URL      = aws_sqs_queue.index.url
+      ARCHIVE_BUCKET     = aws_s3_bucket.archive.id
+      INDEX_BUCKET       = aws_s3_bucket.index.id
+      QUEUE_URL          = aws_sqs_queue.index.url
+      RECEIPTS_QUEUE_URL = aws_sqs_queue.receipts.url
     }
   }
 

@@ -4,8 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MessageMeta } from "../shared/storage.ts";
 import { meta } from "../sync/test-fakes.ts";
-import { drainQueue, indexBatch, type IndexerDeps } from "./indexer.ts";
-import type { Queue, QueueMessage } from "./queue.ts";
+import { indexBatch, type IndexerDeps } from "./indexer.ts";
 import { openOrCreateTable, readRows } from "./table.ts";
 import { fakeEmbed, fakeSource, rawEmail } from "./test-fakes.ts";
 
@@ -43,7 +42,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a", "b", "a"], deps);
 
-    expect(result).toEqual({ added: 2, updated: 0, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(["a", "b"]), updated: 0, failedIds: new Set() });
     expect(embedded).toHaveLength(2);
     expect((await readRows(deps.table, ["a"])).get("a")?.subject).toBe("Subject a");
   });
@@ -55,7 +54,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a"], deps);
 
-    expect(result).toEqual({ added: 0, updated: 1, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(), updated: 1, failedIds: new Set() });
     expect(embedded).toHaveLength(1);
     expect((await readRows(deps.table, ["a"])).get("a")?.labels).toEqual(["STARRED"]);
   });
@@ -75,7 +74,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a"], deps);
 
-    expect(result).toEqual({ added: 0, updated: 0, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(), updated: 0, failedIds: new Set() });
     expect(await deps.table.countRows()).toBe(0);
   });
 
@@ -83,7 +82,7 @@ describe("indexBatch", () => {
     const { deps } = await setup([meta("a")]);
     await indexBatch(["a"], deps);
 
-    expect(await indexBatch(["a"], deps)).toEqual({ added: 0, updated: 0, failedIds: new Set() });
+    expect(await indexBatch(["a"], deps)).toEqual({ addedIds: new Set(), updated: 0, failedIds: new Set() });
   });
 
   it("reports a message that fails and still writes the others", async () => {
@@ -91,66 +90,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a", "b"], deps);
 
-    expect(result).toEqual({ added: 1, updated: 0, failedIds: new Set(["b"]) });
+    expect(result).toEqual({ addedIds: new Set(["a"]), updated: 0, failedIds: new Set(["b"]) });
     expect([...(await readRows(deps.table, ["a", "b"])).keys()]).toEqual(["a"]);
-  });
-});
-
-function fakeQueue(batches: QueueMessage[][]) {
-  const deleted: string[] = [];
-  const queue: Queue = {
-    receive: async () => batches.shift() ?? [],
-    delete: async (handles) => {
-      deleted.push(...handles);
-    },
-  };
-  return { queue, deleted };
-}
-
-const done = (ids: string[], failed: string[] = []) => ({ added: ids.length, updated: 0, failedIds: new Set(failed) });
-
-describe("drainQueue", () => {
-  it("indexes batches until the queue is empty, and deletes only the messages that fully succeeded", async () => {
-    const { queue, deleted } = fakeQueue([
-      [
-        { receiptHandle: "h1", ids: ["a", "b"] },
-        { receiptHandle: "h2", ids: ["c"] },
-      ],
-      [{ receiptHandle: "h3", ids: ["d"] }],
-    ]);
-    const seen: string[][] = [];
-
-    const result = await drainQueue({
-      queue,
-      index: async (ids) => {
-        seen.push(ids);
-        return done(ids, ids.includes("c") ? ["c"] : []);
-      },
-      deadline: Infinity,
-      now: () => 0,
-      log: () => {},
-    });
-
-    expect(result).toEqual({ drained: true });
-    expect(seen).toEqual([["a", "b", "c"], ["d"]]);
-    expect(deleted).toEqual(["h1", "h3"]);
-  });
-
-  it("stops at the deadline", async () => {
-    let time = 0;
-    const { queue } = fakeQueue([[{ receiptHandle: "h1", ids: ["a"] }], [{ receiptHandle: "h2", ids: ["b"] }]]);
-
-    const result = await drainQueue({
-      queue,
-      index: async (ids) => {
-        time += 10;
-        return done(ids);
-      },
-      deadline: 5,
-      now: () => time,
-      log: () => {},
-    });
-
-    expect(result).toEqual({ drained: false });
   });
 });

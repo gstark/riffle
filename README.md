@@ -82,3 +82,32 @@ Logs are in the CloudWatch log group `/aws/lambda/email-backup-sync`. If the syn
 ## Riffle
 
 Riffle is the macOS menu bar app for the search API. See [apps/macos/Riffle/README.md](apps/macos/Riffle/README.md).
+
+## Receipts
+
+The receipts Lambda finds purchase emails (orders, subscription charges, refunds, and shipping notices) and writes their data to the `receipts` table in the index bucket. The indexer sends each new message to it. A keyword filter runs first, and only messages that pass go to the Bedrock model.
+
+Process the last 24 months of archived mail one time:
+
+```sh
+AWS_PROFILE=automation AWS_REGION=us-east-2 \
+ARCHIVE_BUCKET=$(cd infra && tofu output -raw archive_bucket) \
+RECEIPTS_QUEUE_URL=$(cd infra && tofu output -raw receipts_queue_url) \
+node src/receipts/enqueue-receipts.ts
+```
+
+Set `MONTHS` to change the range. Messages that already have a row are skipped, so the script can run again.
+
+Show the counts and the newest receipts:
+
+```sh
+AWS_PROFILE=automation AWS_REGION=us-east-2 \
+INDEX_BUCKET=$(cd infra && tofu output -raw index_bucket) \
+node src/receipts/show-receipts.ts
+```
+
+After a change to the filter rules or the prompt, increase `RECEIPTS_VERSION` in `src/receipts/row.ts` and run the backfill again.
+
+A full rebuild of the search index sends every archived message to the receipts queue, not only the last 24 months. That costs about $20 in model calls.
+
+Logs are in the CloudWatch log group `/aws/lambda/email-backup-receipts`. A message that fails 5 times goes to the receipts dead-letter queue, and an email goes to `alert_email`.

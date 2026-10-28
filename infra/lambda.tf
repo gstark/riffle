@@ -132,7 +132,7 @@ resource "aws_iam_role_policy" "scheduler" {
     Statement = [{
       Effect   = "Allow"
       Action   = "lambda:InvokeFunction"
-      Resource = [aws_lambda_function.sync.arn, aws_lambda_function.indexer.arn]
+      Resource = [aws_lambda_function.sync.arn, aws_lambda_function.indexer.arn, aws_lambda_function.receipts.arn]
     }]
   })
 }

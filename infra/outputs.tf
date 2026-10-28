@@ -29,3 +29,8 @@ output "search_repository_url" {
 output "search_token_secret" {
   value = aws_secretsmanager_secret.search_token.name
 }
+
+output "receipts_queue_url" {
+  description = "Receipts queue. src/receipts/enqueue-receipts.ts sends the backfill IDs to it."
+  value       = aws_sqs_queue.receipts.url
+}
