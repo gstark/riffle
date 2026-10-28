@@ -77,6 +77,8 @@ Run a sync by hand:
 AWS_PROFILE=automation aws lambda invoke --function-name email-backup-sync /dev/stdout
 ```
 
+The archive keeps trash, but not spam. When a message moves to spam, the sync sets `deletedAt` on it. When it leaves spam, the sync clears `deletedAt`. Search and receipts skip deleted messages.
+
 Logs are in the CloudWatch log group `/aws/lambda/email-backup-sync`. If the sync fails in 2 of 3 runs, or does not run for 30 minutes, an email goes to `alert_email`. You must confirm the SNS subscription email one time.
 
 ## Riffle

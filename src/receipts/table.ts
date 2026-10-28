@@ -30,3 +30,8 @@ export async function upsertReceipts(table: lancedb.Table, rows: ReceiptRow[]): 
     .whenNotMatchedInsertAll()
     .execute(lancedb.makeArrowTable(rows, { schema: receiptsSchema }));
 }
+
+export async function deleteReceipts(table: lancedb.Table, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await table.delete(`id IN (${ids.map(sqlString).join(", ")})`);
+}

@@ -50,9 +50,10 @@ export async function handler(): Promise<void> {
     queue: createSqsQueue(sqs, requireEnv("QUEUE_URL")),
     handle: async (ids) => {
       const result = await indexBatch(ids, deps);
-      // New messages go on to receipt extraction. If this send fails, the run fails and the alarm fires.
-      // The rows are written already, so the next run does not send these IDs again: run enqueue-receipts.ts.
-      await sendIds(sqs, receiptsQueueUrl, [...result.addedIds]);
+      // New messages go on to receipt extraction. Deleted and restored messages go too, so that their receipt rows
+      // follow. If this send fails, the run fails and the alarm fires. The rows are written already, so the next run
+      // does not send these IDs again: run enqueue-receipts.ts.
+      await sendIds(sqs, receiptsQueueUrl, [...result.addedIds, ...result.toggledIds]);
       return result;
     },
     describe: (result) =>

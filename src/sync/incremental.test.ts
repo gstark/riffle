@@ -66,6 +66,28 @@ describe("syncChanges", () => {
     expect(metas.get("gone")?.deletedAt).not.toBeNull();
   });
 
+  it("does not archive new spam", async () => {
+    const { archive, raw } = fakeArchive({ state: synced });
+    const gmail = fakeGmail({ messages: [message("s", ["SPAM"])], history: history({ messagesAdded: [ref("s")] }) });
+
+    const result = await syncChanges({ ...options, gmail, archive });
+
+    expect(result.archived).toBe(0);
+    expect(raw.size).toBe(0);
+  });
+
+  it("marks a message that moves to spam as deleted, and restores it when it leaves spam", async () => {
+    const { archive, meta: metas } = fakeArchive({ state: synced, metas: [meta("a")] });
+
+    const toSpam = fakeGmail({ messages: [message("a", ["SPAM"])], history: history({ labelsAdded: [ref("a")] }) });
+    expect((await syncChanges({ ...options, gmail: toSpam, archive })).deleted).toBe(1);
+    expect(metas.get("a")).toMatchObject({ labelIds: ["SPAM"], deletedAt: expect.any(String) });
+
+    const back = fakeGmail({ messages: [message("a", ["INBOX"])], history: history({ labelsRemoved: [ref("a")] }) });
+    expect((await syncChanges({ ...options, gmail: back, archive })).relabeled).toBe(1);
+    expect(metas.get("a")).toMatchObject({ labelIds: ["INBOX"], deletedAt: null });
+  });
+
   it("ignores a message that is added and then deleted before it is archived", async () => {
     const { archive, raw } = fakeArchive({ state: synced });
     const gmail = fakeGmail({ history: history({ messagesAdded: [ref("x")] }, { messagesDeleted: [ref("x")] }) });

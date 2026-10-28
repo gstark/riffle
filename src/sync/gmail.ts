@@ -59,7 +59,7 @@ export interface GmailReader {
   getHistoryId(): Promise<string>;
   /** Labels sorted by ID. */
   listLabels(): Promise<Label[]>;
-  /** Yields message IDs one page at a time, spam and trash included. */
+  /** Yields message IDs one page at a time. Trash is included, spam is not. */
   listMessageIds(): AsyncIterable<string[]>;
   /** Yields the changes after `startHistoryId`, oldest first. */
   listHistory(startHistoryId: string): AsyncIterable<HistoryPage>;
@@ -108,6 +108,7 @@ export function createGmailReader(client: JWT): GmailReader {
           {
             maxResults: "500",
             includeSpamTrash: "true",
+            q: "-in:spam",
             ...(pageToken && { pageToken }),
           },
         );

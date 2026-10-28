@@ -42,7 +42,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a", "b", "a"], deps);
 
-    expect(result).toEqual({ addedIds: new Set(["a", "b"]), updated: 0, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(["a", "b"]), toggledIds: new Set(), updated: 0, failedIds: new Set() });
     expect(embedded).toHaveLength(2);
     expect((await readRows(deps.table, ["a"])).get("a")?.subject).toBe("Subject a");
   });
@@ -54,7 +54,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a"], deps);
 
-    expect(result).toEqual({ addedIds: new Set(), updated: 1, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(), toggledIds: new Set(), updated: 1, failedIds: new Set() });
     expect(embedded).toHaveLength(1);
     expect((await readRows(deps.table, ["a"])).get("a")?.labels).toEqual(["STARRED"]);
   });
@@ -64,8 +64,9 @@ describe("indexBatch", () => {
     await indexBatch(["a"], deps);
     metaById.set("a", { ...meta("a"), deletedAt: "2024-04-01T00:00:00.000Z" });
 
-    await indexBatch(["a"], deps);
+    const result = await indexBatch(["a"], deps);
 
+    expect(result.toggledIds).toEqual(new Set(["a"]));
     expect((await readRows(deps.table, ["a"])).get("a")?.deleted).toBe(true);
   });
 
@@ -74,7 +75,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a"], deps);
 
-    expect(result).toEqual({ addedIds: new Set(), updated: 0, failedIds: new Set() });
+    expect(result).toEqual({ addedIds: new Set(), toggledIds: new Set(), updated: 0, failedIds: new Set() });
     expect(await deps.table.countRows()).toBe(0);
   });
 
@@ -82,7 +83,7 @@ describe("indexBatch", () => {
     const { deps } = await setup([meta("a")]);
     await indexBatch(["a"], deps);
 
-    expect(await indexBatch(["a"], deps)).toEqual({ addedIds: new Set(), updated: 0, failedIds: new Set() });
+    expect(await indexBatch(["a"], deps)).toEqual({ addedIds: new Set(), toggledIds: new Set(), updated: 0, failedIds: new Set() });
   });
 
   it("reports a message that fails and still writes the others", async () => {
@@ -90,7 +91,7 @@ describe("indexBatch", () => {
 
     const result = await indexBatch(["a", "b"], deps);
 
-    expect(result).toEqual({ addedIds: new Set(["a"]), updated: 0, failedIds: new Set(["b"]) });
+    expect(result).toEqual({ addedIds: new Set(["a"]), toggledIds: new Set(), updated: 0, failedIds: new Set(["b"]) });
     expect([...(await readRows(deps.table, ["a", "b"])).keys()]).toEqual(["a"]);
   });
 });

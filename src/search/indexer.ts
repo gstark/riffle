@@ -21,6 +21,8 @@ export interface IndexerDeps {
 export interface BatchResult {
   /** IDs of the messages that got a new row. */
   addedIds: Set<string>;
+  /** IDs of the rows that changed to deleted or back. */
+  toggledIds: Set<string>;
   updated: number;
   /** IDs to try again later. */
   failedIds: Set<string>;
@@ -49,7 +51,7 @@ export async function indexBatch(ids: string[], deps: IndexerDeps): Promise<Batc
   const unique = [...new Set(ids)];
   const existing = await readRows(deps.table, unique);
   const changed: IndexRow[] = [];
-  const result: BatchResult = { addedIds: new Set(), updated: 0, failedIds: new Set() };
+  const result: BatchResult = { addedIds: new Set(), toggledIds: new Set(), updated: 0, failedIds: new Set() };
 
   await runPool(unique, deps.concurrency, async (id) => {
     try {
@@ -64,6 +66,7 @@ export async function indexBatch(ids: string[], deps: IndexerDeps): Promise<Batc
         result.addedIds.add(id);
       } else if (row.deleted !== deleted || !sameLabels(row.labels, meta.labelIds)) {
         changed.push({ ...row, labels: meta.labelIds, deleted });
+        if (row.deleted !== deleted) result.toggledIds.add(id);
         result.updated++;
       }
     } catch (error) {

@@ -2,13 +2,16 @@ import { rawKey, type MessageMeta } from "../shared/storage.ts";
 import type { Archive } from "./archive.ts";
 import type { GmailReader, RawMessage } from "./gmail.ts";
 
+/** The archive does not keep spam. */
+export const isSpam = (labelIds: string[]) => labelIds.includes("SPAM");
+
 /**
  * Fetches a message from Gmail and writes it to the archive.
- * Returns false when the message no longer exists in Gmail.
+ * Returns false when the message no longer exists in Gmail or is spam.
  */
 export async function archiveMessage(gmail: GmailReader, archive: Archive, id: string): Promise<boolean> {
   const message = await gmail.getRawMessage(id);
-  if (!message) return false;
+  if (!message || isSpam(message.labelIds ?? [])) return false;
   await archive.putMessage(Buffer.from(message.raw, "base64url"), toMeta(message));
   return true;
 }

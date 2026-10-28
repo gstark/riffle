@@ -27,23 +27,23 @@ export async function handler(): Promise<void> {
     log,
   };
 
-  let written = 0;
+  let changes = 0;
   const { drained } = await drainQueue({
     queue: createSqsQueue(new SQSClient(), requireEnv("QUEUE_URL")),
     // Each batch writes its rows once at the end, so a small batch finishes well inside the Lambda timeout.
     batchIds: 200,
     handle: async (ids) => {
       const result = await processBatch(ids, deps);
-      written += result.written;
+      changes += result.written + result.removed;
       return result;
     },
     describe: (result) =>
-      `Receipts: ${result.written} rows written, ${result.modelCalls} model calls, ${result.failedIds.size} failed`,
+      `Receipts: ${result.written} rows written, ${result.removed} removed, ${result.modelCalls} model calls, ${result.failedIds.size} failed`,
     deadline: started + RUN_MS,
     now: Date.now,
     log,
   });
 
   // Each batch adds a table version and a small file. Merge them when the queue is empty.
-  if (drained && written > 0) await optimize(table);
+  if (drained && changes > 0) await optimize(table);
 }

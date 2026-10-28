@@ -13,7 +13,7 @@ export interface BackfillOptions {
 
 export interface BackfillResult {
   archived: number;
-  /** Listed by Gmail but deleted before we could fetch them. */
+  /** Listed by Gmail but deleted or moved to spam before we could fetch them. */
   vanished: number;
   failed: number;
 }

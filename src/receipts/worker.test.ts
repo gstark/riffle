@@ -66,7 +66,7 @@ describe("processBatch", () => {
 
     const result = await processBatch(["a", "b", "a"], deps);
 
-    expect(result).toEqual({ written: 2, modelCalls: 1, failedIds: new Set() });
+    expect(result).toEqual({ written: 2, removed: 0, modelCalls: 1, failedIds: new Set() });
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toContain("Subject: Your order");
     const rows = await rowsById(deps.table);
@@ -80,7 +80,7 @@ describe("processBatch", () => {
 
     const result = await processBatch(["a"], deps);
 
-    expect(result).toEqual({ written: 0, modelCalls: 0, failedIds: new Set() });
+    expect(result).toEqual({ written: 0, removed: 0, modelCalls: 0, failedIds: new Set() });
     expect(inputs).toHaveLength(1);
   });
 
@@ -101,8 +101,19 @@ describe("processBatch", () => {
 
     const result = await processBatch(["a", "missing"], deps);
 
-    expect(result).toEqual({ written: 0, modelCalls: 0, failedIds: new Set() });
+    expect(result).toEqual({ written: 0, removed: 0, modelCalls: 0, failedIds: new Set() });
     expect(await deps.table.countRows()).toBe(0);
+  });
+
+  it("removes the row of a message that was deleted after it got a row", async () => {
+    const { deps } = await setup({ a: receiptEmail("Your order"), b: receiptEmail("Your order") });
+    await processBatch(["a", "b"], deps);
+    const source = fakeSource({ metas: [{ ...meta("a"), deletedAt: "2024-04-01T00:00:00.000Z" }, meta("b")] }).source;
+
+    const result = await processBatch(["a", "b"], { ...deps, source });
+
+    expect(result).toEqual({ written: 0, removed: 1, modelCalls: 0, failedIds: new Set() });
+    expect([...(await rowsById(deps.table)).keys()]).toEqual(["b"]);
   });
 
   it("reports failed messages and still writes the others", async () => {
@@ -114,7 +125,7 @@ describe("processBatch", () => {
 
     const result = await processBatch(["a", "b", "c"], deps);
 
-    expect(result).toEqual({ written: 1, modelCalls: 2, failedIds: new Set(["b", "c"]) });
+    expect(result).toEqual({ written: 1, removed: 0, modelCalls: 2, failedIds: new Set(["b", "c"]) });
     expect([...(await rowsById(deps.table)).keys()]).toEqual(["a"]);
   });
 });

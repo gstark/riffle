@@ -1,6 +1,6 @@
 import type { Archive } from "./archive.ts";
 import type { GmailReader } from "./gmail.ts";
-import { archiveMessage } from "./messages.ts";
+import { archiveMessage, isSpam } from "./messages.ts";
 import { rateLimiter, runPool } from "./pool.ts";
 
 export interface SyncOptions {
@@ -23,6 +23,7 @@ type Change = "changed" | "deleted";
 /**
  * Applies the Gmail changes since the saved history ID to the archive:
  * new messages are archived, label changes update meta, deletions set deletedAt.
+ * A message that moves to spam counts as deleted. When it leaves spam, deletedAt is cleared again.
  * The history ID only moves forward when every change succeeds, so a failed run is retried in full.
  */
 export async function syncChanges({
@@ -72,8 +73,15 @@ export async function syncChanges({
 
       const current = await gmail.getMessageLabels(id);
       if (!current) return await markDeleted(id);
-      if (!sameLabels(meta.labelIds, current.labelIds)) {
-        await archive.putMeta({ ...meta, ...current, updatedAt: now });
+      if (isSpam(current.labelIds)) {
+        if (meta.deletedAt === null) {
+          await archive.putMeta({ ...meta, ...current, deletedAt: now, updatedAt: now });
+          result.deleted++;
+        }
+        return;
+      }
+      if (meta.deletedAt !== null || !sameLabels(meta.labelIds, current.labelIds)) {
+        await archive.putMeta({ ...meta, ...current, deletedAt: null, updatedAt: now });
         result.relabeled++;
       }
     } catch (error) {
