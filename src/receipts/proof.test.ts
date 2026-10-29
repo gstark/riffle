@@ -53,6 +53,7 @@ describe("classify", () => {
     ["a sign-in redirect", page({ finalUrl: "https://www.amazon.com/ap/signin?x=1" }), "login_required"],
     ["a sign-in host", page({ status: 403, finalUrl: "https://auth.uber.com/v2/?x=1" }), "login_required"],
     ["status 403", page({ status: 403 }), "blocked"],
+    ["status 503", page({ status: 503 }), "blocked"],
     ["a CAPTCHA", page({ text: "Please complete the CAPTCHA" }), "blocked"],
     ["status 404", page({ status: 404 }), "link_failed"],
     ["an expired link", page({ text: "This link expired. To get a new link contact us." }), "link_failed"],

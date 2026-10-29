@@ -17,6 +17,8 @@ const NAVIGATION_TIMEOUT_MS = 30_000;
 /** Wait for scripts that load the receipt after the load event. */
 const IDLE_TIMEOUT_MS = 8_000;
 const PDF_OPTIONS = { format: "Letter", printBackground: true } as const;
+/** page.pdf and newContext have no timeout, and a page can freeze the browser. */
+const USE_DEADLINE_MS = 90_000;
 
 const isPdf = (bytes: Uint8Array) => Buffer.from(bytes.subarray(0, 5)).toString("latin1") === "%PDF-";
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -28,6 +30,9 @@ export interface ProofBrowserOptions {
   /** AgentCore stops the session after this time. It must be longer than the run. */
   sessionSeconds: number;
 }
+
+/** The browser crashed, froze, or closed the connection during one use. */
+class BrowserLost extends Error {}
 
 interface Session {
   browser: Browser;
@@ -97,7 +102,11 @@ export function openProofBrowser(options: ProofBrowserOptions): ProofBrowser & {
   /** The connected browser. AgentCore can close the connection, so a lost session is replaced by a new one. */
   async function browser(): Promise<Browser> {
     const pending = (session ??= startSession(options));
-    const current = await pending;
+    const current = await pending.catch((error: unknown) => {
+      // A session that failed to start must not stay cached. The next use tries a new one.
+      if (session === pending) session = null;
+      throw error;
+    });
     if (current.browser.isConnected()) return current.browser;
     if (session === pending) {
       session = startSession(options);
@@ -106,8 +115,44 @@ export function openProofBrowser(options: ProofBrowserOptions): ProofBrowser & {
     return (await session).browser;
   }
 
-  async function visit(url: string): Promise<Visit> {
-    const context = await (await browser()).newContext({ acceptDownloads: true });
+  /**
+   * One use of the browser with a deadline. A page can crash or freeze the AgentCore browser. Then the connection
+   * is closed, so the next use starts a new session.
+   */
+  async function use<T>(work: (browser: Browser) => Promise<T>): Promise<T> {
+    const current = await browser();
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`No answer from the browser in ${USE_DEADLINE_MS / 1000} s`)),
+        USE_DEADLINE_MS,
+      );
+    });
+    const working = work(current);
+    working.catch(() => {});
+    try {
+      return await Promise.race([working, deadline]);
+    } catch (error) {
+      await current.close().catch(() => {});
+      throw new BrowserLost(errorText(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Try again once on a new session: AgentCore can also close a connection that no page caused. */
+  async function twice<T>(work: (browser: Browser) => Promise<T>): Promise<T> {
+    try {
+      return await use(work);
+    } catch (error) {
+      if (!(error instanceof BrowserLost)) throw error;
+      return await use(work);
+    }
+  }
+
+  /** Throws only when the browser is lost. A failure of the page itself is a Visit. */
+  async function visitOnce(current: Browser, url: string): Promise<Visit> {
+    const context = await current.newContext({ acceptDownloads: true });
     try {
       const page = await context.newPage();
       // A link to a PDF file with "Content-Disposition: attachment" starts a download, and the navigation fails.
@@ -140,25 +185,37 @@ export function openProofBrowser(options: ProofBrowserOptions): ProofBrowser & {
         text: await page.innerText("body").catch(() => ""),
       };
     } catch (error) {
-      // A lost connection is not a fact about the link. Throw, so the message is tried again.
-      if (!context.browser()?.isConnected()) throw error;
+      if (!current.isConnected()) throw error;
       return { ok: false, error: errorText(error) };
     } finally {
       await context.close().catch(() => {});
     }
   }
 
-  async function renderPage(html: string): Promise<Uint8Array> {
-    // Email HTML must not run scripts. Remote images still load, as in a mail app.
-    const context = await (await browser()).newContext({ javaScriptEnabled: false });
+  async function visit(url: string): Promise<Visit> {
     try {
-      const page = await context.newPage();
-      // A slow remote image must not stop the PDF. After the timeout, the page prints without it.
-      await page.setContent(html, { waitUntil: "load", timeout: IDLE_TIMEOUT_MS }).catch(() => {});
-      return await page.pdf(PDF_OPTIONS);
-    } finally {
-      await context.close().catch(() => {});
+      return await twice((current) => visitOnce(current, url));
+    } catch (error) {
+      // The page lost the browser two times. It is a fact about the link, so record it and go on.
+      if (!(error instanceof BrowserLost)) throw error;
+      return { ok: false, error: `The page closed or froze the browser two times: ${errorText(error)}` };
     }
+  }
+
+  async function renderPage(html: string): Promise<Uint8Array> {
+    // A failure on the second try fails the message, so the queue tries it again.
+    return twice(async (current) => {
+      // Email HTML must not run scripts. Remote images still load, as in a mail app.
+      const context = await current.newContext({ javaScriptEnabled: false });
+      try {
+        const page = await context.newPage();
+        // A slow remote image must not stop the PDF. After the timeout, the page prints without it.
+        await page.setContent(html, { waitUntil: "load", timeout: IDLE_TIMEOUT_MS }).catch(() => {});
+        return await page.pdf(PDF_OPTIONS);
+      } finally {
+        await context.close().catch(() => {});
+      }
+    });
   }
 
   async function close() {

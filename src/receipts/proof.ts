@@ -14,7 +14,7 @@ export const FIDELITIES = [
   "unverified_page",
   /** The link goes to a sign-in page. */
   "login_required",
-  /** The site refused a browser without a person: status 403 or 429, or a CAPTCHA. */
+  /** The site refused a browser without a person: status 403, 429, or 503, or a CAPTCHA. Amazon gives 503 for its robot check. */
   "blocked",
   /** Other HTTP errors, expired links, and timeouts. */
   "link_failed",
@@ -89,7 +89,7 @@ export function classify(visit: Visit, target: ProofTarget): Fidelity {
   if (!visit.ok) return "link_failed";
   if (visit.download) return "merchant_pdf";
   if (visit.status === 401 || visit.hasPasswordField || isLoginUrl(visit.finalUrl)) return "login_required";
-  if (visit.status === 403 || visit.status === 429 || BLOCKED_TEXT.test(visit.text)) return "blocked";
+  if ([403, 429, 503].includes(visit.status ?? 0) || BLOCKED_TEXT.test(visit.text)) return "blocked";
   if ((visit.status !== null && visit.status >= 400) || EXPIRED_TEXT.test(visit.text)) return "link_failed";
   return showsReceipt(visit.text, target) ? "merchant_page" : "unverified_page";
 }
