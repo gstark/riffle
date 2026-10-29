@@ -215,13 +215,15 @@ private struct SiteDetail: View {
     }
 
     private func rowPhase(_ index: Int) -> ReceiptRow.Phase {
-        guard let finished else { return .waiting }
-        return index < finished ? .finished : index == finished ? .printing : .waiting
+        if model.status(of: site.site) == .queued { return .queued }
+        guard let finished else { return .idle }
+        return index < finished ? .finished : index == finished ? .printing : .queued
     }
 }
 
 private struct ReceiptRow: View {
-    enum Phase { case waiting, printing, finished }
+    /// `idle`: the receipt is not in a run. `queued`: the run prints it later.
+    enum Phase { case idle, queued, printing, finished }
 
     let receipt: PendingReceipt
     let phase: Phase
@@ -230,9 +232,13 @@ private struct ReceiptRow: View {
     var body: some View {
         Button(action: open) {
             HStack {
-                // The receipt that Riffle prints now.
+                // The receipt that Riffle prints now, or a clock when it is in the queue.
                 ZStack {
-                    if phase == .printing { ProgressView().controlSize(.mini) }
+                    switch phase {
+                    case .printing: ProgressView().controlSize(.mini)
+                    case .queued: Image(systemName: "clock").font(.caption).foregroundStyle(.secondary).help("In the queue")
+                    case .idle, .finished: EmptyView()
+                    }
                 }
                 .frame(width: 14)
                 Text(receipt.date, format: .dateTime.year().month(.abbreviated).day())
