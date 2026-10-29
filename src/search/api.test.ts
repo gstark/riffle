@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PageResult } from "../receipts/signed-in.ts";
 import { createApi, type FunctionUrlEvent } from "./api.ts";
 import { BadRequestError, type Filters, type SearchInput } from "./request.ts";
 
@@ -19,6 +20,9 @@ function event(method: string, path: string, { token = "secret", body, base64 = 
   };
 }
 
+/** SHA-256 of an empty file, in base64. */
+const SHA256 = "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
+
 const filters: Filters = {
   text: "renewal",
   from: ["acme"],
@@ -33,6 +37,7 @@ const filters: Filters = {
 
 function setup({ fail }: { fail?: Error } = {}) {
   const searches: [SearchInput, number][] = [];
+  const results: PageResult[] = [];
   const api = createApi({
     getToken: async () => "secret",
     search: async (input, limit) => {
@@ -42,9 +47,17 @@ function setup({ fail }: { fail?: Error } = {}) {
     },
     labels: async () => [{ name: "INBOX", type: "system" }],
     health: async () => new Date("2026-10-23T14:42:00.000Z"),
+    proofs: {
+      pending: async () => [{ site: "amazon.com", merchant: "Amazon", receipts: [] }],
+      upload: async (id, sha256) => ({ url: `https://s3.example.com/${id}?${sha256}`, key: `proofs/${id}.pdf` }),
+      result: async (page) => {
+        results.push(page);
+        return { fidelity: "merchant_page" };
+      },
+    },
     log: () => {},
   });
-  return { api, searches };
+  return { api, searches, results };
 }
 
 describe("createApi", () => {
@@ -142,5 +155,47 @@ describe("createApi", () => {
 
     expect(result.statusCode).toBe(500);
     expect(JSON.parse(result.body)).toEqual({ error: "Internal error" });
+  });
+
+  it("lists the pending signed-in proofs", async () => {
+    const { api } = setup();
+
+    const result = await api(event("GET", "/proofs/pending"));
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body)).toEqual({ sites: [{ site: "amazon.com", merchant: "Amazon", receipts: [] }] });
+  });
+
+  it("gives an upload URL", async () => {
+    const { api } = setup();
+
+    const body = JSON.stringify({ id: "m1:0", sha256: SHA256 });
+    const result = await api(event("POST", "/proofs/upload", { body }));
+
+    expect(JSON.parse(result.body)).toEqual({ url: `https://s3.example.com/m1:0?${SHA256}`, key: "proofs/m1:0.pdf" });
+  });
+
+  it("records a page result", async () => {
+    const { api, results } = setup();
+    const page = { id: "m1:0", finalUrl: "https://example.com/", status: null, hasPasswordField: false, text: "Total" };
+
+    const result = await api(event("POST", "/proofs/result", { body: JSON.stringify(page) }));
+
+    expect(JSON.parse(result.body)).toEqual({ fidelity: "merchant_page" });
+    expect(results).toEqual([page]);
+  });
+
+  it.each<[string, string]>([
+    ["/proofs/upload", "{}"],
+    ["/proofs/upload", '{"id":"m1:0","sha256":"short"}'],
+    ["/proofs/result", '{"id":"m1:0"}'],
+    ["/proofs/result", '{"id":"m1:0","finalUrl":"x","status":1.5,"hasPasswordField":false,"text":""}'],
+  ])("rejects the body of %s: %s", async (path, body) => {
+    const { api, results } = setup();
+
+    const result = await api(event("POST", path, { body }));
+
+    expect(result.statusCode).toBe(400);
+    expect(results).toEqual([]);
   });
 });

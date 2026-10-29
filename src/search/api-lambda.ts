@@ -1,8 +1,11 @@
 // Query Lambda entry point, behind a Function URL. See infra/search-api.tf.
 
-import { S3Client } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import * as lancedb from "@lancedb/lancedb";
+import { createSignedInProofs } from "../receipts/signed-in.ts";
+import { openCandidateTables, readCandidates, writeSignedIn } from "../receipts/signed-in-table.ts";
 import { log, requireEnv } from "../shared/runtime.ts";
 import { createApi } from "./api.ts";
 import { cached } from "./cache.ts";
@@ -17,10 +20,14 @@ import { createS3Source } from "./source.ts";
 const CACHE_MS = 5 * 60_000;
 /** A warm Lambda checks for new table versions at most this often, in seconds. */
 const READ_CONSISTENCY_SECONDS = 30;
+/** The Riffle app uploads a PDF right after it gets the URL. */
+const UPLOAD_URL_SECONDS = 5 * 60;
 
 const secrets = new SecretsManagerClient();
 const tokenSecretId = requireEnv("TOKEN_SECRET_ID");
-const source = createS3Source(new S3Client(), requireEnv("ARCHIVE_BUCKET"));
+const s3 = new S3Client();
+const archiveBucket = requireEnv("ARCHIVE_BUCKET");
+const source = createS3Source(s3, archiveBucket);
 
 const getLabels = cached(() => source.getLabels(), CACHE_MS);
 
@@ -30,13 +37,17 @@ const getToken = cached(async () => {
   return secret.SecretString.trim();
 }, CACHE_MS);
 
+/** Connects once per Lambda instance. */
+const getDb = cached(
+  () => lancedb.connect(`s3://${requireEnv("INDEX_BUCKET")}`, { readConsistencyInterval: READ_CONSISTENCY_SECONDS }),
+  Infinity,
+);
+
 /** Opens the table once per Lambda instance. */
-const getTable = cached(async () => {
-  const db = await lancedb.connect(`s3://${requireEnv("INDEX_BUCKET")}`, {
-    readConsistencyInterval: READ_CONSISTENCY_SECONDS,
-  });
-  return db.openTable(TABLE);
-}, Infinity);
+const getTable = cached(async () => (await getDb()).openTable(TABLE), Infinity);
+
+/** Opens the tables of the signed-in proofs once per Lambda instance. */
+const getProofTables = cached(async () => openCandidateTables(await getDb()), Infinity);
 
 /** Builds the search once per Lambda instance. */
 const getSearch = cached(async () => {
@@ -61,5 +72,23 @@ export const handler = createApi({
     await getSearch();
     return newestMessageDate(await getTable());
   },
+  proofs: createSignedInProofs({
+    pending: async () => readCandidates(await getProofTables()),
+    candidate: async (id) => (await readCandidates(await getProofTables(), id))[0] ?? null,
+    // The checksum stays a signed header, so S3 accepts only this PDF. The archive bucket needs it for Object Lock.
+    presignPut: (key, sha256) =>
+      getSignedUrl(
+        s3,
+        new PutObjectCommand({ Bucket: archiveBucket, Key: key, ContentType: "application/pdf", ChecksumSHA256: sha256 }),
+        { expiresIn: UPLOAD_URL_SECONDS, unhoistableHeaders: new Set(["x-amz-checksum-sha256"]) },
+      ),
+    // A list and not HeadObject: the role may list proofs/ only, and reads no PDFs.
+    pdfExists: async (key) => {
+      const list = await s3.send(new ListObjectsV2Command({ Bucket: archiveBucket, Prefix: key, MaxKeys: 1 }));
+      return list.Contents?.[0]?.Key === key;
+    },
+    write: async (row) => writeSignedIn((await getProofTables()).signedIn, row),
+    now: () => new Date(),
+  }),
   log,
 });

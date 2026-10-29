@@ -1,6 +1,7 @@
 // HTTP routes of the search Function URL.
 
 import { z } from "zod";
+import type { SignedInProofs } from "../receipts/signed-in.ts";
 import { isAuthorized } from "./auth.ts";
 import { BadRequestError, SearchBodySchema, type SearchInput } from "./request.ts";
 
@@ -30,6 +31,8 @@ export interface ApiDeps {
    * Returns the date of the newest message in the index, or null when the index is empty.
    */
   health: () => Promise<Date | null>;
+  /** Routes under /proofs, for the proofs that the Riffle app makes with a sign-in. */
+  proofs: SignedInProofs;
   log: (message: string) => void;
 }
 
@@ -39,12 +42,28 @@ const json = (statusCode: number, value: unknown): FunctionUrlResult => ({
   body: JSON.stringify(value),
 });
 
+/** `sha256` is the base64 SHA-256 of the PDF. */
+const UploadBodySchema = z.strictObject({ id: z.string().min(1), sha256: z.base64().length(44) });
+
+const ResultBodySchema = z.strictObject({
+  id: z.string().min(1),
+  finalUrl: z.string(),
+  status: z.int().nullable(),
+  hasPasswordField: z.boolean(),
+  text: z.string(),
+});
+
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
     return undefined;
   }
+}
+
+/** The JSON body of the request, or undefined when it is not JSON. */
+function body(event: FunctionUrlEvent): unknown {
+  return parseJson(event.isBase64Encoded ? Buffer.from(event.body ?? "", "base64").toString() : (event.body ?? ""));
 }
 
 export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<FunctionUrlResult> {
@@ -61,8 +80,7 @@ export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<F
         return json(200, { labels: await deps.labels() });
       }
       if (route === "POST /search") {
-        const raw = event.isBase64Encoded ? Buffer.from(event.body ?? "", "base64").toString() : (event.body ?? "");
-        const request = SearchBodySchema.safeParse(parseJson(raw));
+        const request = SearchBodySchema.safeParse(body(event));
         if (!request.success) {
           return json(400, {
             error: `The body must be {"q": string} or {"filters": {...}}, with an optional "limit". ${z.prettifyError(request.error)}`,
@@ -70,6 +88,25 @@ export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<F
         }
         const { limit, ...input } = request.data;
         return json(200, await deps.search(input, limit));
+      }
+      if (route === "GET /proofs/pending") {
+        return json(200, { sites: await deps.proofs.pending() });
+      }
+      if (route === "POST /proofs/upload") {
+        const request = UploadBodySchema.safeParse(body(event));
+        if (!request.success) {
+          return json(400, { error: `The body must be {"id": string, "sha256": base64}. ${z.prettifyError(request.error)}` });
+        }
+        return json(200, await deps.proofs.upload(request.data.id, request.data.sha256));
+      }
+      if (route === "POST /proofs/result") {
+        const request = ResultBodySchema.safeParse(body(event));
+        if (!request.success) {
+          return json(400, {
+            error: `The body must be {"id", "finalUrl", "status", "hasPasswordField", "text"}. ${z.prettifyError(request.error)}`,
+          });
+        }
+        return json(200, await deps.proofs.result(request.data));
       }
       return json(404, { error: "Not found" });
     } catch (error) {

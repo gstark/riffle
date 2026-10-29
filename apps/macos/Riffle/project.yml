@@ -39,6 +39,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # The proof runner prints receipt pages to PDF files.
+        com.apple.security.print: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gstark.riffle

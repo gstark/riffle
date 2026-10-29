@@ -8,12 +8,17 @@ final class StatusItemController: NSObject {
     private let menu = NSMenu()
     private let toggle: () -> Void
     private let openSettings: () -> Void
+    private let openProofs: () -> Void
 
-    init(toggle: @escaping () -> Void, openSettings: @escaping () -> Void) {
+    init(toggle: @escaping () -> Void, openSettings: @escaping () -> Void, openProofs: @escaping () -> Void) {
         self.toggle = toggle
         self.openSettings = openSettings
+        self.openProofs = openProofs
         super.init()
 
+        let proofs = NSMenuItem(title: "Receipts That Need Sign-In…", action: #selector(proofsClicked), keyEquivalent: "")
+        proofs.target = self
+        menu.addItem(proofs)
         let settings = NSMenuItem(title: "Settings…", action: #selector(settingsClicked), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -37,7 +42,16 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Shows the badged icon when a site needs a sign-in again.
+    func setBadge(_ shown: Bool) {
+        item.button?.image = shown ? MenuBarIcon.badged : MenuBarIcon.image
+    }
+
     @objc private func settingsClicked() {
         openSettings()
+    }
+
+    @objc private func proofsClicked() {
+        openProofs()
     }
 }
