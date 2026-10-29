@@ -10,6 +10,8 @@ public final class ProofsModel {
         case needsSignIn
         /// Riffle made PDFs with this site before. The timer runs it.
         case ready
+        /// The site waits in the queue for the running site.
+        case queued
         case working(done: Int, total: Int)
         case done(made: Int, skipped: Int)
         case failed(String)
@@ -18,11 +20,25 @@ public final class ProofsModel {
             switch self {
             case .needsSignIn: "Needs sign-in"
             case .ready: "Ready"
+            case .queued: "Waiting"
             case .working(let done, let total): "Working \(done) of \(total)"
             case .done(let made, 0): "Done: \(made) PDFs"
             case .done(let made, let skipped): "Done: \(made) PDFs, \(skipped) failed"
             case .failed(let message): message
             }
+        }
+    }
+
+    /// The progress of all sites of a run, together.
+    public struct Progress: Equatable, Sendable {
+        public let done: Int
+        public let total: Int
+        public let startedAt: Date
+
+        /// The time to finish the run, from the speed so far. Nil until a few receipts are finished.
+        public func timeLeft(now: Date = .now) -> TimeInterval? {
+            guard done >= 3 else { return nil }
+            return now.timeIntervalSince(startedAt) / Double(done) * Double(total - done)
         }
     }
 
@@ -39,8 +55,15 @@ public final class ProofsModel {
     public private(set) var sites: [PendingSite] = []
     public private(set) var load: LoadState = .notLoaded
     private var statuses: [String: SiteStatus] = [:]
-    /// The site of the running run. Only one run works at a time.
+    /// The site that Riffle works on now. Riffle works on one site at a time.
     public private(set) var runningSite: String?
+    /// The sites that wait for the running site, in order.
+    public private(set) var queue: [PendingSite] = []
+    /// The receipts of the run: of the finished sites, the running site, and the queue.
+    private var runTotal = 0
+    /// The receipts of the finished sites of the run.
+    private var runDone = 0
+    private var runStartedAt: Date?
     /// Sites where a run made PDFs. The timer runs these sites.
     private var signedInSites: Set<String> {
         didSet { defaults.set(signedInSites.sorted(), forKey: Self.signedInSitesKey) }
@@ -54,6 +77,14 @@ public final class ProofsModel {
     public var needsAttention: Bool { !expiredSites.isEmpty }
 
     public var isRunning: Bool { runningSite != nil }
+
+    /// Nil when no run works.
+    public var progress: Progress? {
+        guard let runningSite, let runStartedAt else { return nil }
+        var done = runDone
+        if case .working(let current, _) = statuses[runningSite] { done += current }
+        return Progress(done: done, total: runTotal, startedAt: runStartedAt)
+    }
     public var pendingCount: Int { sites.reduce(0) { $0 + $1.receipts.count } }
 
     private let store: any ConnectionStore
@@ -92,14 +123,16 @@ public final class ProofsModel {
         }
     }
 
-    /// Makes the PDFs of all pending receipts of `site`, after you signed in. Does nothing while a run works.
+    /// Makes the PDFs of all pending receipts of `site`, after you signed in. While a run works, the site waits in the
+    /// queue, and this returns at once.
     public func makePDFs(site: String) async {
         guard let pending = sites.first(where: { $0.site == site }) else { return }
-        _ = await run(pending)
+        await work([pending])
     }
 
-    /// Stops the running run after its current page.
+    /// Stops the run after its current page, and empties the queue.
     public func cancel() {
+        clearQueue()
         task?.cancel()
     }
 
@@ -108,16 +141,40 @@ public final class ProofsModel {
         guard !isRunning else { return }
         await refresh()
         guard load == .loaded else { return }
-        for site in sites where signedInSites.contains(site.site) && !expiredSites.contains(site.site) {
-            switch await run(site) {
-            case .unauthorized, .cancelled: return
-            case .done, .needsSignIn, .failed: break
-            }
-        }
+        await work(sites.filter { signedInSites.contains($0.site) && !expiredSites.contains($0.site) })
     }
 
-    private func run(_ site: PendingSite) async -> SiteOutcome {
-        guard !isRunning, let service = store.load().map(makeService) else { return .cancelled }
+    /// Adds `sites` to the queue. Then, if no run works, runs the queue until it is empty, and gets the pending
+    /// receipts again.
+    private func work(_ sites: [PendingSite]) async {
+        guard let service = store.load().map(makeService) else { return }
+        for site in sites where site.site != runningSite && !queue.contains(where: { $0.site == site.site }) {
+            queue.append(site)
+            statuses[site.site] = .queued
+            runTotal += site.receipts.count
+        }
+        guard !isRunning, !queue.isEmpty else { return }
+        runStartedAt = .now
+        while !queue.isEmpty {
+            let site = queue.removeFirst()
+            switch await run(site, service: service) {
+            case .unauthorized, .cancelled: clearQueue()
+            case .done, .needsSignIn, .failed: break
+            }
+            runDone += site.receipts.count
+        }
+        runTotal = 0
+        runDone = 0
+        runStartedAt = nil
+        await refresh()
+    }
+
+    private func clearQueue() {
+        for site in queue { statuses[site.site] = nil }
+        queue = []
+    }
+
+    private func run(_ site: PendingSite, service: any ProofsService) async -> SiteOutcome {
         let total = site.receipts.count
         runningSite = site.site
         statuses[site.site] = .working(done: 0, total: total)

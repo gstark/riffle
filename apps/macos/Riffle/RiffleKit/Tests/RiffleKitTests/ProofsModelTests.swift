@@ -108,6 +108,48 @@ import Testing
         #expect(!model.needsAttention)
     }
 
+    @Test func aSecondSiteWaitsInTheQueue() async {
+        let loader = FakePageLoader(pages: receiptPages(uber.receipts + heroku.receipts))
+        let model = model(FakeProofsService(sites: [uber, heroku]), loader: loader)
+        await model.refresh()
+
+        let first = Task { await model.makePDFs(site: "uber.com") }
+        while !model.isRunning { await Task.yield() }
+        await model.makePDFs(site: "heroku.com")
+
+        #expect(model.status(of: "heroku.com") == .queued)
+        #expect(model.queue.map(\.site) == ["heroku.com"])
+        #expect(model.progress?.total == 2)
+
+        await first.value
+        #expect(loader.loaded == (uber.receipts + heroku.receipts).map(\.printUrl))
+        #expect(model.status(of: "heroku.com") == .done(made: 1, skipped: 0))
+        #expect(model.progress == nil)
+        #expect(model.queue.isEmpty)
+    }
+
+    @Test func stopEmptiesTheQueue() async {
+        let loader = FakePageLoader(pages: receiptPages(uber.receipts + heroku.receipts))
+        let model = model(FakeProofsService(sites: [uber, heroku]), loader: loader)
+        await model.refresh()
+
+        let first = Task { await model.makePDFs(site: "uber.com") }
+        while !model.isRunning { await Task.yield() }
+        await model.makePDFs(site: "heroku.com")
+        model.cancel()
+        await first.value
+
+        #expect(!loader.loaded.contains(heroku.receipts[0].printUrl))
+        #expect(model.status(of: "heroku.com") == .needsSignIn)
+        #expect(model.queue.isEmpty)
+    }
+
+    @Test func progressTimeLeft() {
+        let start = Date(timeIntervalSince1970: 0)
+        #expect(ProofsModel.Progress(done: 2, total: 10, startedAt: start).timeLeft(now: start.addingTimeInterval(20)) == nil)
+        #expect(ProofsModel.Progress(done: 5, total: 10, startedAt: start).timeLeft(now: start.addingTimeInterval(50)) == 50)
+    }
+
     @Test func statusText() {
         #expect(ProofsModel.SiteStatus.working(done: 12, total: 37).text == "Working 12 of 37")
         #expect(ProofsModel.SiteStatus.done(made: 3, skipped: 0).text == "Done: 3 PDFs")

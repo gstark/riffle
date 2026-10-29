@@ -44,11 +44,14 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
     init(model: ProofsModel) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            // The same style as a SwiftUI window. Without .fullSizeContentView, SwiftUI puts the content under the
+            // toolbar, and you cannot see or scroll to the top of the receipt list.
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: true
         )
         super.init()
+        window.toolbarStyle = .unified
         window.title = "Receipts That Need Sign-In"
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: SignInView(model: model, browser: Browser()))
@@ -106,7 +109,22 @@ private struct SignInView: View {
                 )
             }
         }
+        .toolbar {
+            if let progress = model.progress {
+                ToolbarItem(placement: .status) {
+                    RunProgress(progress: progress, site: runningMerchant)
+                }
+                ToolbarItem(placement: .status) {
+                    Button("Stop", systemImage: "stop.fill") { model.cancel() }
+                        .help("Stop after this receipt, and empty the queue")
+                }
+            }
+        }
         .task { await model.refresh() }
+    }
+
+    private var runningMerchant: String {
+        model.sites.first { $0.site == model.runningSite }?.merchant ?? model.runningSite ?? ""
     }
 
     @ViewBuilder private var loadMessage: some View {
@@ -136,26 +154,24 @@ private struct SiteDetail: View {
     let browser: Browser
 
     private var count: Int { site.receipts.count }
-    private var isRunningHere: Bool { model.runningSite == site.site }
+    /// The number of finished receipts while a run works. The runner works the receipts in list order.
+    private var finished: Int? {
+        if case .working(let done, _) = model.status(of: site.site) { done } else { nil }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            List(site.receipts) { receipt in
-                Button { browser.open(receipt.signInUrl) } label: {
-                    HStack {
-                        Text(receipt.date, format: .dateTime.year().month(.abbreviated).day())
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 96, alignment: .leading)
-                        Text(receipt.subject).lineLimit(1)
-                        Spacer()
-                        if let amount = receipt.amount { Text(amount).monospacedDigit() }
-                    }
-                    .contentShape(Rectangle())
+            ScrollViewReader { proxy in
+                List(Array(site.receipts.enumerated()), id: \.element.id) { index, receipt in
+                    ReceiptRow(receipt: receipt, phase: rowPhase(index)) { browser.open(receipt.signInUrl) }
                 }
-                .buttonStyle(.plain)
+                .frame(height: 170)
+                // Follow the receipt that Riffle prints now.
+                .onChange(of: finished) {
+                    guard let finished, finished < count else { return }
+                    withAnimation { proxy.scrollTo(site.receipts[finished].id, anchor: .center) }
+                }
             }
-            .frame(height: 170)
 
             Divider()
             HStack(spacing: 8) {
@@ -178,25 +194,17 @@ private struct SiteDetail: View {
         .navigationTitle(site.merchant)
         .navigationSubtitle(model.status(of: site.site).text)
         .toolbar {
-            ToolbarItem {
-                if case .working(let done, let total) = model.status(of: site.site) {
-                    ProgressView(value: Double(done), total: Double(total)).frame(width: 160)
-                }
-            }
             ToolbarItem(placement: .primaryAction) {
-                if isRunningHere {
-                    Button("Stop", systemImage: "stop.fill") { model.cancel() }
-                        .labelStyle(.titleAndIcon)
-                } else {
+                switch model.status(of: site.site) {
+                case .working, .queued:
+                    EmptyView()
+                default:
                     Button("Make \(count) \(count == 1 ? "PDF" : "PDFs")", systemImage: "doc.richtext") {
-                        Task {
-                            await model.makePDFs(site: site.site)
-                            await model.refresh()
-                        }
+                        Task { await model.makePDFs(site: site.site) }
                     }
                     .labelStyle(.titleAndIcon)
                     .buttonStyle(.glassProminent)
-                    .disabled(model.isRunning)
+                    .help(model.isRunning ? "Riffle starts this site after the sites before it" : "")
                 }
             }
         }
@@ -204,5 +212,73 @@ private struct SiteDetail: View {
         .onChange(of: site.site, initial: true) {
             if let first = site.receipts.first { browser.open(first.signInUrl) }
         }
+    }
+
+    private func rowPhase(_ index: Int) -> ReceiptRow.Phase {
+        guard let finished else { return .waiting }
+        return index < finished ? .finished : index == finished ? .printing : .waiting
+    }
+}
+
+private struct ReceiptRow: View {
+    enum Phase { case waiting, printing, finished }
+
+    let receipt: PendingReceipt
+    let phase: Phase
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            HStack {
+                // The receipt that Riffle prints now.
+                ZStack {
+                    if phase == .printing { ProgressView().controlSize(.mini) }
+                }
+                .frame(width: 14)
+                Text(receipt.date, format: .dateTime.year().month(.abbreviated).day())
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 96, alignment: .leading)
+                Text(receipt.subject).lineLimit(1)
+                Spacer()
+                if let amount = receipt.amount { Text(amount).monospacedDigit() }
+            }
+            .fontWeight(phase == .printing ? .semibold : .regular)
+            .opacity(phase == .finished ? 0.4 : 1)
+            .animation(.easeOut(duration: 0.3), value: phase)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The progress of all sites of the run, in the window toolbar.
+private struct RunProgress: View {
+    let progress: ProofsModel.Progress
+    /// The merchant that Riffle works on now
+    let site: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(progress.done) of \(progress.total) PDFs")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 6)
+    }
+
+    private var detail: String {
+        guard let left = progress.timeLeft() else { return site }
+        if left < 60 { return "\(site), less than a minute left" }
+        let time = Duration.seconds(left).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+        return "\(site), about \(time) left"
     }
 }
