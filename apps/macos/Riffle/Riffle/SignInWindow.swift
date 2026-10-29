@@ -130,31 +130,6 @@ private struct SiteDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(site.merchant).font(.title3.bold())
-                    Text(model.status(of: site.site).text).font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if case .working(let done, let total) = model.status(of: site.site) {
-                    ProgressView(value: Double(done), total: Double(total)).frame(width: 160)
-                }
-                if isRunningHere {
-                    Button("Stop") { model.cancel() }
-                } else {
-                    Button("Make PDFs for \(count) \(site.merchant) \(count == 1 ? "email" : "emails")") {
-                        Task {
-                            await model.makePDFs(site: site.site)
-                            await model.refresh()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isRunning)
-                }
-            }
-            .padding(12)
-
-            Divider()
             List(site.receipts) { receipt in
                 Button { browser.open(receipt.signInUrl) } label: {
                     HStack {
@@ -189,6 +164,29 @@ private struct SiteDetail: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             BrowserView(browser: browser)
+        }
+        .navigationTitle(site.merchant)
+        .navigationSubtitle(model.status(of: site.site).text)
+        .toolbar {
+            ToolbarItem {
+                if case .working(let done, let total) = model.status(of: site.site) {
+                    ProgressView(value: Double(done), total: Double(total)).frame(width: 160)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if isRunningHere {
+                    Button("Stop") { model.cancel() }
+                } else {
+                    Button("Make PDFs for \(count) \(count == 1 ? "email" : "emails")") {
+                        Task {
+                            await model.makePDFs(site: site.site)
+                            await model.refresh()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isRunning)
+                }
+            }
         }
         // Open the first receipt, so you can sign in at once.
         .onChange(of: site.site, initial: true) {
