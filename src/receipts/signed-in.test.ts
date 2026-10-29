@@ -52,6 +52,15 @@ describe("siteKey", () => {
     expect(siteKey(amazon({ finalUrl: "https://email.amazon.co.uk/x" }))).toBe("amazon.com");
   });
 
+  it.each<[string, Partial<Candidate>]>([
+    ["an AWS console link", { merchant: "Amazon", url: "https://console.aws.amazon.com/billing/home" }],
+    ["an AWS sign-in page", { merchant: "Amazon", finalUrl: "https://signin.aws.amazon.com/signin?x" }],
+    ["the AWS merchant", { merchant: "Amazon Web Services", url: "https://www.amazon.com/x" }],
+    ["an AWS merchant with an order ID", { merchant: "AWS", orderId: "112-1234567-1234567", url: "https://www.amazon.com/x" }],
+  ])("is aws.amazon.com for %s", (_, fields) => {
+    expect(siteKey(amazon(fields))).toBe("aws.amazon.com");
+  });
+
   it("uses the link for Amazon without an Amazon order ID", () => {
     expect(siteKey(amazon({ orderId: "D01-1234", url: "https://www.amazon.com/x" }))).toBe("amazon.com");
     expect(siteKey(amazon({ orderId: null }))).toBeNull();

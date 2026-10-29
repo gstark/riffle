@@ -11,6 +11,9 @@ export const PENDING_FIDELITIES: readonly Fidelity[] = ["login_required", "block
 const WRITTEN: ReadonlySet<Fidelity> = new Set(["merchant_page", "unverified_page"]);
 
 const AMAZON_ORDER_ID = /\b\d{3}-\d{7}-\d{7}\b/;
+/** AWS has its own sign-in, apart from the Amazon store. */
+const AWS_SITE = "aws.amazon.com";
+const AWS_MERCHANT = /\baws\b|amazon web services/i;
 
 /** A receipt with a `login_required` or `blocked` proof: fields of the receipt row and of its proof row. */
 export interface Candidate {
@@ -89,9 +92,6 @@ export interface SignedInDeps {
   now: () => Date;
 }
 
-const amazonOrderId = (candidate: Candidate): string | null =>
-  /amazon/i.test(candidate.merchant ?? "") ? (candidate.orderId?.match(AMAZON_ORDER_ID)?.[0] ?? null) : null;
-
 function host(url: string | null): string | null {
   if (!url) return null;
   try {
@@ -100,6 +100,18 @@ function host(url: string | null): string | null {
     return null;
   }
 }
+
+const linkHost = (candidate: Candidate): string | null => host(candidate.finalUrl) ?? host(candidate.url);
+
+function isAws(candidate: Candidate): boolean {
+  const name = linkHost(candidate);
+  return AWS_MERCHANT.test(candidate.merchant ?? "") || name === AWS_SITE || !!name?.endsWith(`.${AWS_SITE}`);
+}
+
+const amazonOrderId = (candidate: Candidate): string | null =>
+  /amazon/i.test(candidate.merchant ?? "") && !isAws(candidate)
+    ? (candidate.orderId?.match(AMAZON_ORDER_ID)?.[0] ?? null)
+    : null;
 
 /**
  * Links that go to no single receipt: the emails of two or more different orders have them, for example a billing
@@ -114,11 +126,15 @@ export function sharedLinks(proofs: { messageId: string; url: string | null; ord
   return new Set([...orders].filter(([, keys]) => keys.size >= 2).map(([url]) => url));
 }
 
-/** The site of the session that the receipt needs, for example "amazon.com". Null when the receipt has no link. */
+/**
+ * The site of the session that the receipt needs, for example "amazon.com", or "aws.amazon.com" for an AWS bill.
+ * Null when the receipt has no link.
+ */
 export function siteKey(candidate: Candidate): string | null {
   if (amazonOrderId(candidate)) return "amazon.com";
-  const name = host(candidate.finalUrl) ?? host(candidate.url);
-  return name ? name.split(".").slice(-2).join(".") : null;
+  const name = linkHost(candidate);
+  if (!name) return null;
+  return isAws(candidate) ? AWS_SITE : name.split(".").slice(-2).join(".");
 }
 
 /**

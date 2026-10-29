@@ -31,9 +31,10 @@ public protocol PageLoader: AnyObject {
 
 /// How the run of one site ended.
 public enum SiteOutcome: Equatable, Sendable {
-    /// All receipts were tried. `wrong` pages do not show the charge. `skipped` receipts failed and stay pending.
+    /// All receipts were tried. `wrong` pages do not show the charge. `skipped` receipts failed or asked for a sign-in,
+    /// and stay pending.
     case done(made: Int, wrong: Int, skipped: Int)
-    /// A page asked for a sign-in, or the server saw a sign-in page or a robot check.
+    /// Pages in sequence asked for a sign-in or showed a robot check, or no page loaded without one.
     case needsSignIn
     /// Too many receipts failed in sequence.
     case failed(String)
@@ -56,7 +57,7 @@ public enum ReceiptResult: Equatable, Sendable {
 
 @MainActor
 public final class ProofRunner {
-    /// The run stops after this many failures in sequence.
+    /// The run stops after this many failures, or this many sign-in pages, in sequence.
     static let maxFailures = 3
     /// The server reads at most this much text. It needs only the total or the order ID.
     static let maxText = 200_000
@@ -85,16 +86,26 @@ public final class ProofRunner {
         var wrong = 0
         var skipped = 0
         var failures = 0
+        var signIns = 0
+        var signInsInSequence = 0
         for (index, receipt) in receipts.enumerated() {
             if index > 0 {
                 do { try await sleep(pause) } catch { return .cancelled }
             }
             do {
                 let result = try await makeProof(receipt)
+                failures = 0
+                // One receipt can need another sign-in, for example an AWS bill in the Amazon site. Sign-in pages
+                // in sequence show that the session ended.
                 if result.needsSignIn {
+                    skipped += 1
+                    signIns += 1
+                    signInsInSequence += 1
                     report(receipt.id, .needsSignIn)
-                    return .needsSignIn
+                    if signInsInSequence >= Self.maxFailures { return .needsSignIn }
+                    continue
                 }
+                signInsInSequence = 0
                 // An error page (link_failed) stays pending, as a failed step does.
                 if result.isKept {
                     made += 1
@@ -106,7 +117,6 @@ public final class ProofRunner {
                     skipped += 1
                     report(receipt.id, .failed("The link gave an error page."))
                 }
-                failures = 0
             } catch is CancellationError {
                 return .cancelled
             } catch SearchError.unauthorized {
@@ -114,10 +124,13 @@ public final class ProofRunner {
             } catch {
                 skipped += 1
                 failures += 1
+                signInsInSequence = 0
                 report(receipt.id, .failed(Self.message(error)))
                 if failures >= Self.maxFailures { return .failed(Self.message(error)) }
             }
         }
+        // No page loaded with the session, so the site needs a sign-in.
+        if signIns > 0, made + wrong == 0 { return .needsSignIn }
         return .done(made: made, wrong: wrong, skipped: skipped)
     }
 

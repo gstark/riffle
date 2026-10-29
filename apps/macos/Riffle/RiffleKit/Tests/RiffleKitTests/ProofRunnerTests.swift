@@ -54,7 +54,7 @@ import Testing
         #expect(await service.results.map(\.pdf) == [nil])
     }
 
-    @Test func stopsAtASignInPageBeforeItPrints() async {
+    @Test func skipsASignInPageWithoutPrintingAndGoesOn() async {
         let service = FakeProofsService()
         var pages = receiptPages(receipts)
         pages[receipts[1].printUrl] = .signIn
@@ -62,18 +62,34 @@ import Testing
 
         let outcome = await runner(service, loader).run(receipts)
 
-        #expect(outcome == .needsSignIn)
-        #expect(loader.loaded == [receipts[0].printUrl, receipts[1].printUrl])
-        #expect(loader.printed == 1)
+        #expect(outcome == .done(made: 2, wrong: 0, skipped: 1))
+        #expect(loader.loaded == receipts.map(\.printUrl))
+        #expect(loader.printed == 2)
     }
 
-    @Test func stopsWhenTheServerSeesASignInPage() async {
+    @Test func stopsAfterThreeSignInPagesInSequence() async {
+        let more = receipts + [PendingReceipt.sample("d:0")]
+        let loader = FakePageLoader(pages: Dictionary(uniqueKeysWithValues: more.map { ($0.printUrl, LoadedPage.signIn) }))
+
+        let outcome = await runner(FakeProofsService(), loader).run(more)
+
+        #expect(outcome == .needsSignIn)
+        #expect(loader.loaded.count == 3)
+    }
+
+    @Test func needsSignInWhenNoPageLoadsWithTheSession() async {
+        let loader = FakePageLoader(pages: [receipts[0].printUrl: .signIn])
+
+        #expect(await runner(FakeProofsService(), loader).run([receipts[0]]) == .needsSignIn)
+    }
+
+    @Test func stopsWhenTheServerSeesSignInPages() async {
         let service = FakeProofsService(fidelity: "blocked")
 
         let outcome = await runner(service, FakePageLoader(pages: receiptPages(receipts))).run(receipts)
 
         #expect(outcome == .needsSignIn)
-        #expect(await service.calls.count == 1)
+        #expect(await service.calls.count == 3)
     }
 
     @Test func countsPagesThatAreNotReceipts() async {
