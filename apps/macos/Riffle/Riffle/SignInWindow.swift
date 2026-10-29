@@ -34,8 +34,11 @@ private struct BrowserView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 }
 
+/// While the window is open, Riffle is a regular app with a Dock icon, so it is in the Command-Tab list.
+/// You can go to another app, for example to get a password, and come back. When you close the window, Riffle is
+/// a menu bar app again.
 @MainActor
-final class SignInWindowController {
+final class SignInWindowController: NSObject, NSWindowDelegate {
     private let window: NSWindow
 
     init(model: ProofsModel) {
@@ -45,16 +48,23 @@ final class SignInWindowController {
             backing: .buffered,
             defer: true
         )
+        super.init()
         window.title = "Receipts That Need Sign-In"
         window.isReleasedWhenClosed = false
         window.contentViewController = NSHostingController(rootView: SignInView(model: model, browser: Browser()))
         window.setContentSize(NSSize(width: 1100, height: 760))
         window.center()
+        window.delegate = self
     }
 
     func show() {
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 
