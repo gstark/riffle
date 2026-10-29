@@ -97,7 +97,12 @@ final class WebPageLoader: NSObject, PageLoader, WKNavigationDelegate {
         return data
     }
 
-    @objc private func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+    /// AppKit calls this on the thread of the print operation, not on the main thread.
+    @objc nonisolated private func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+        Task { @MainActor in self.printFinished(success) }
+    }
+
+    private func printFinished(_ success: Bool) {
         printed?.resume(returning: success)
         printed = nil
     }

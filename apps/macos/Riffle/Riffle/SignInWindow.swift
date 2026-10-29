@@ -185,15 +185,17 @@ private struct SiteDetail: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 if isRunningHere {
-                    Button("Stop") { model.cancel() }
+                    Button("Stop", systemImage: "stop.fill") { model.cancel() }
+                        .labelStyle(.titleAndIcon)
                 } else {
-                    Button("Make PDFs for \(count) \(count == 1 ? "email" : "emails")") {
+                    Button("Make \(count) \(count == 1 ? "PDF" : "PDFs")", systemImage: "doc.richtext") {
                         Task {
                             await model.makePDFs(site: site.site)
                             await model.refresh()
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.glassProminent)
                     .disabled(model.isRunning)
                 }
             }
