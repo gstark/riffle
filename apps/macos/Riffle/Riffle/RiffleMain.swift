@@ -64,8 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let proofs else { return }
         let shown = withObservationTracking {
             proofs.needsAttention
-        } onChange: {
-            Task { @MainActor [weak self] in self?.observeBadge() }
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeBadge() }
         }
         statusItem?.setBadge(shown)
     }

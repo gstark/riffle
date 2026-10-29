@@ -17,7 +17,7 @@ final class Browser {
         observation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                address = webView.url?.absoluteString ?? ""
+                self.address = self.webView.url?.absoluteString ?? ""
             }
         }
     }
