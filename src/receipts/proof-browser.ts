@@ -202,20 +202,32 @@ export function openProofBrowser(options: ProofBrowserOptions): ProofBrowser & {
     }
   }
 
+  async function renderOnce(current: Browser, html: string, images: boolean): Promise<Uint8Array> {
+    // Email HTML must not run scripts. Remote images still load, as in a mail app.
+    const context = await current.newContext({ javaScriptEnabled: false });
+    try {
+      const page = await context.newPage();
+      if (!images)
+        await page.route("**/*", (route) =>
+          route.request().resourceType() === "image" ? route.abort() : route.continue(),
+        );
+      // A slow remote image must not stop the PDF. After the timeout, the page prints without it.
+      await page.setContent(html, { waitUntil: "load", timeout: IDLE_TIMEOUT_MS }).catch(() => {});
+      return await page.pdf(PDF_OPTIONS);
+    } finally {
+      await context.close().catch(() => {});
+    }
+  }
+
   async function renderPage(html: string): Promise<Uint8Array> {
-    // A failure on the second try fails the message, so the queue tries it again.
-    return twice(async (current) => {
-      // Email HTML must not run scripts. Remote images still load, as in a mail app.
-      const context = await current.newContext({ javaScriptEnabled: false });
-      try {
-        const page = await context.newPage();
-        // A slow remote image must not stop the PDF. After the timeout, the page prints without it.
-        await page.setContent(html, { waitUntil: "load", timeout: IDLE_TIMEOUT_MS }).catch(() => {});
-        return await page.pdf(PDF_OPTIONS);
-      } finally {
-        await context.close().catch(() => {});
-      }
-    });
+    try {
+      return await twice((current) => renderOnce(current, html, true));
+    } catch (error) {
+      if (!(error instanceof BrowserLost)) throw error;
+      // Chrome puts each image in the PDF at full size. A PDF of about 10 MB closes the AgentCore connection,
+      // so print the email without its remote images. A failure here fails the message, and the queue tries it again.
+      return await use((current) => renderOnce(current, html, false));
+    }
   }
 
   async function close() {
