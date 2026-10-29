@@ -107,12 +107,28 @@ function withDefaults(receipt: unknown): unknown {
 }
 
 /**
+ * Haiku sometimes sends the receipts list as a JSON string, often with extra closing brackets after the list.
+ * Returns the longest start of the text that is a JSON list, or the text when no start is a list.
+ */
+function parseListText(text: string): unknown {
+  for (let end = text.lastIndexOf("]"); end >= 0; end = text.lastIndexOf("]", end - 1)) {
+    try {
+      const value: unknown = JSON.parse(text.slice(0, end + 1));
+      if (Array.isArray(value)) return value;
+    } catch {
+      // Try a shorter start.
+    }
+  }
+  return text;
+}
+
+/**
  * Parses the tool input of a model. Models leave out null fields, so a missing field reads as null. A missing
- * confidence reads as 0. Haiku sometimes sends the receipts list as a JSON string.
+ * confidence reads as 0.
  */
 export function parseExtraction(input: unknown): ExtractionOutput {
   if (!isRecord(input)) return ExtractionSchema.parse(input);
-  const receipts: unknown = typeof input.receipts === "string" ? JSON.parse(input.receipts) : input.receipts;
+  const receipts = typeof input.receipts === "string" ? parseListText(input.receipts) : input.receipts;
   if (!Array.isArray(receipts)) return ExtractionSchema.parse({ receipts });
   return ExtractionSchema.parse({ receipts: receipts.map(withDefaults) });
 }

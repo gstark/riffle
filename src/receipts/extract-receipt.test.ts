@@ -77,8 +77,16 @@ describe("parseExtraction", () => {
     expect(parseExtraction({ receipts: [{ kind: "order" }] }).receipts[0]?.confidence).toBe(0);
   });
 
-  it("reads a receipts list that is a JSON string", () => {
-    expect(parseExtraction({ receipts: JSON.stringify([receiptOutput()]) })).toEqual(extraction(receiptOutput()));
+  it("reads a receipts list that is a JSON string, also with extra closing brackets", () => {
+    const list = JSON.stringify([receiptOutput(), receiptOutput()]);
+
+    expect(parseExtraction({ receipts: list })).toEqual(extraction(receiptOutput(), receiptOutput()));
+    expect(parseExtraction({ receipts: `${list}}]` })).toEqual(extraction(receiptOutput(), receiptOutput()));
+  });
+
+  it("rejects a receipts string that is not a JSON list", () => {
+    expect(() => parseExtraction({ receipts: "[{" })).toThrow();
+    expect(() => parseExtraction({ receipts: "{}" })).toThrow();
   });
 
   it("accepts an empty list", () => {

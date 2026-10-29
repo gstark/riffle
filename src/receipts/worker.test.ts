@@ -45,15 +45,19 @@ async function setup(raws: Record<string, Uint8Array>, metas: MessageMeta[] = Ob
       return extraction(receiptOutput());
     },
   };
+  const proofIds: string[][] = [];
   const deps: ReceiptDeps = {
     source,
     table: await openOrCreateReceipts(dir),
     model,
+    sendProofs: async (ids) => {
+      proofIds.push(ids);
+    },
     concurrency: 4,
     now: () => now,
     log: () => {},
   };
-  return { deps, inputs };
+  return { deps, inputs, proofIds };
 }
 
 async function rowsById(table: lancedb.Table) {
@@ -63,11 +67,12 @@ async function rowsById(table: lancedb.Table) {
 
 describe("processBatch", () => {
   it("sends messages that pass the filter to the model and records the others as filter rows", async () => {
-    const { deps, inputs } = await setup({ a: receiptEmail("Your order"), b: newsletter() });
+    const { deps, inputs, proofIds } = await setup({ a: receiptEmail("Your order"), b: newsletter() });
 
     const result = await processBatch(["a", "b", "a"], deps);
 
     expect(result).toEqual({ written: 2, removed: 0, modelCalls: 1, failedIds: new Set() });
+    expect(proofIds).toEqual([["a"]]);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toContain("Subject: Your order");
     const rows = await rowsById(deps.table);
@@ -76,11 +81,12 @@ describe("processBatch", () => {
   });
 
   it("writes one row for each receipt in a message", async () => {
-    const { deps } = await setup({ a: receiptEmail("TWO orders") });
+    const { deps, proofIds } = await setup({ a: receiptEmail("TWO orders") });
 
     const result = await processBatch(["a"], deps);
 
     expect(result).toEqual({ written: 2, removed: 0, modelCalls: 1, failedIds: new Set() });
+    expect(proofIds).toEqual([["a"]]);
     const rows = await rowsById(deps.table);
     expect([...rows.keys()].toSorted()).toEqual(["a:0", "a:1"]);
     expect(rows.get("a:1")).toMatchObject({ messageId: "a", orderId: "2" });
@@ -98,9 +104,11 @@ describe("processBatch", () => {
 
   it("processes messages again when their row has an older version", async () => {
     const { deps } = await setup({ a: receiptEmail("Your order") });
-    await replaceReceipts(deps.table, ["a"], [
-      { ...filterRow(meta("a"), { from: "", subject: "", text: "" }, now), version: 0 },
-    ]);
+    await replaceReceipts(
+      deps.table,
+      ["a"],
+      [{ ...filterRow(meta("a"), { from: "", subject: "", text: "" }, now), version: 0 }],
+    );
 
     await processBatch(["a"], deps);
 

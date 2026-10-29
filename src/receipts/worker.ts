@@ -14,6 +14,8 @@ export interface ReceiptDeps {
   source: MessageSource;
   table: lancedb.Table;
   model: ReceiptModel;
+  /** Sends the IDs of messages with new receipts to the proofs queue. */
+  sendProofs: (messageIds: string[]) => Promise<void>;
   /** Model calls at the same time */
   concurrency: number;
   now: () => Date;
@@ -36,7 +38,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 /**
  * Writes the rows of each message that has no rows at RECEIPTS_VERSION, in one table write. The new rows replace the
  * old rows of the message. Deleted messages get no rows, and their old rows are removed. A message that fails stays out of the table and is in
- * `failedIds`.
+ * `failedIds`. Messages with new receipts go to the proofs queue.
  */
 export async function processBatch(ids: string[], deps: ReceiptDeps): Promise<ReceiptBatchResult> {
   const unique = [...new Set(ids)];
@@ -71,6 +73,8 @@ export async function processBatch(ids: string[], deps: ReceiptDeps): Promise<Re
   });
 
   await replaceReceipts(deps.table, [...writtenIds, ...removedIds], rows);
+  // A failed send does not undo the write. enqueue-proofs.ts finds receipts without proofs.
+  await deps.sendProofs([...new Set(rows.filter((row) => row.kind !== "none").map((row) => row.messageId))]);
   result.written = rows.length;
   result.removed = removedIds.length;
   return result;

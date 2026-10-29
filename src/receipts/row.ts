@@ -12,7 +12,7 @@ import type { ReceiptEmail } from "./text.ts";
 export const RECEIPTS_VERSION = 3;
 
 /** Digits after the decimal point: 2 for USD, 0 for JPY, 3 for KWD. 2 when the code is missing or not valid. */
-function currencyDigits(currency: string | null): number {
+export function currencyDigits(currency: string | null): number {
   if (!currency) return 2;
   try {
     return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;

@@ -89,9 +89,9 @@ export function createSqsQueue(sqs: SQSClient, url: string): Queue {
   };
 }
 
-/** Sends IDs to the queue in the full build format. */
-export async function sendIds(sqs: SQSClient, url: string, ids: string[]): Promise<void> {
-  const bodies = chunk(ids, IDS_PER_MESSAGE).map((part) => JSON.stringify({ ids: part }));
+/** Sends IDs to the queue in the full build format. Slow consumers can ask for fewer IDs in each message. */
+export async function sendIds(sqs: SQSClient, url: string, ids: string[], perMessage = IDS_PER_MESSAGE): Promise<void> {
+  const bodies = chunk(ids, Math.min(perMessage, IDS_PER_MESSAGE)).map((part) => JSON.stringify({ ids: part }));
   for (const entries of chunk(bodies, SQS_BATCH)) {
     const result = await sqs.send(
       new SendMessageBatchCommand({

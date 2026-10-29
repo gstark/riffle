@@ -114,4 +114,50 @@ After a change to the filter rules or the prompt, increase `RECEIPTS_VERSION` in
 
 A full rebuild of the search index sends every archived message to the receipts queue, not only the last 24 months. That costs about $20 in model calls.
 
-Logs are in the CloudWatch log group `/aws/lambda/email-backup-receipts`. A message that fails 5 times goes to the receipts dead-letter queue, and an email goes to `alert_email`.
+### Proof of purchase
+
+The proofs Lambda keeps a proof of purchase for each receipt. The receipts Lambda sends each message with a receipt to the proofs queue. For each message, the proofs Lambda:
+
+1. Stores a PDF of the email at `proofs/<messageId>/email.pdf` in the archive bucket. Every receipt has this PDF.
+2. Stores each PDF attachment at `proofs/<messageId>/attachment-<n>.pdf`. Then it does not open links.
+3. Otherwise, selects the links that can go to a receipt page with rules. It never opens links that unsubscribe or change the account.
+4. Opens at most 3 links in an Amazon Bedrock AgentCore browser. It does not sign in. After a sign-in page or a block, it skips the other links to that site.
+5. Stores a PDF of a page or a downloaded PDF at `proofs/<messageId>/link-<n>.pdf`.
+
+It writes one row for each receipt to the `receipt_proofs` table in the index bucket. The `fidelity` column tells how much the best proof shows, best first:
+
+- `attached_pdf`: the email has a PDF attachment.
+- `merchant_pdf`: a link gave a PDF file.
+- `merchant_page`: a page shows the total or the order ID.
+- `unverified_page`: a page opened, but it does not show them.
+- `login_required`: the link goes to a sign-in page.
+- `blocked`: the site refused the browser (status 403 or 429, or a CAPTCHA).
+- `link_failed`: an HTTP error, a timeout, or an expired link.
+- `no_link`: the email has no receipt link.
+
+`pdfKey` is the PDF of the best proof. `emailPdfKey` is the email PDF. `documents` lists all stored PDFs with their SHA-256. `attempts` lists each link visit.
+
+Chromium runs in AgentCore, not in the Lambda. The proofs Lambda uses the search image, so `just deploy-search` deploys it. The AgentCore browser has Web Bot Auth: it signs its requests, so sites that use Cloudflare, Akamai, or HUMAN Security can identify it as a known agent. Its user agent says `Amazon-Bedrock-AgentCore-Browser`.
+
+Send the messages with receipts that have no proof to the proofs queue:
+
+```sh
+AWS_PROFILE=automation AWS_REGION=us-east-2 \
+INDEX_BUCKET=$(cd infra && tofu output -raw index_bucket) \
+PROOFS_QUEUE_URL=$(cd infra && tofu output -raw proofs_queue_url) \
+node src/receipts/enqueue-proofs.ts
+```
+
+Set `LIMIT` to send a random sample. After a change to the link rules or the classification, increase `PROOFS_VERSION` in `src/receipts/proof-table.ts` and run the script again.
+
+To see the results without storing anything, run `try-proofs.ts`. It uses the same AgentCore browser. The PDFs stay in memory.
+
+```sh
+AWS_PROFILE=automation AWS_REGION=us-east-2 \
+INDEX_BUCKET=$(cd infra && tofu output -raw index_bucket) \
+ARCHIVE_BUCKET=$(cd infra && tofu output -raw archive_bucket) \
+BROWSER_ID=$(cd infra && tofu output -raw proofs_browser_id) \
+node src/receipts/try-proofs.ts 40
+```
+
+Logs are in the CloudWatch log groups `/aws/lambda/email-backup-receipts` and `/aws/lambda/email-backup-proofs`. A message that fails 5 times goes to the dead-letter queue of its step, and an email goes to `alert_email`.

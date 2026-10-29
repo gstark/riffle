@@ -34,3 +34,13 @@ output "receipts_queue_url" {
   description = "Receipts queue. src/receipts/enqueue-receipts.ts sends the backfill IDs to it."
   value       = aws_sqs_queue.receipts.url
 }
+
+output "proofs_queue_url" {
+  description = "Proofs queue. src/receipts/enqueue-proofs.ts sends the backfill IDs to it."
+  value       = aws_sqs_queue.proofs.url
+}
+
+output "proofs_browser_id" {
+  description = "AgentCore browser of the proofs Lambda. src/receipts/try-proofs.ts uses it."
+  value       = aws_bedrockagentcore_browser.proofs.browser_id
+}

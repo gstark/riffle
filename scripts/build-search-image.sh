@@ -23,7 +23,7 @@ for dir in "$OUT"/node_modules/@lancedb/lancedb-*; do
 done
 
 # --entry-names keeps each bundle at the top of the build context, where the image CMD looks for it.
-npx esbuild src/search/indexer-lambda.ts src/search/api-lambda.ts src/receipts/receipts-lambda.ts \
+npx esbuild src/search/indexer-lambda.ts src/search/api-lambda.ts src/receipts/receipts-lambda.ts src/receipts/proofs-lambda.ts \
   --bundle --platform=node --target=node24 --format=esm --packages=external \
   --entry-names=[name] --outdir="$OUT" --out-extension:.js=.mjs
 /bin/cp search.Dockerfile "$OUT/Dockerfile"

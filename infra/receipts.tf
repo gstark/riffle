@@ -81,6 +81,12 @@ resource "aws_iam_role_policy" "receipts" {
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.receipts.arn
       },
+      {
+        Sid      = "SendProofs"
+        Effect   = "Allow"
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.proofs.arn
+      },
       # Haiku 5.5 through the US inference profile in us-east-1 (HAIKU_5_5_REGION in src/receipts/models.ts).
       # The profile can send a call to any US region. Converse needs bedrock:InvokeModel.
       {
@@ -119,9 +125,10 @@ resource "aws_lambda_function" "receipts" {
 
   environment {
     variables = {
-      ARCHIVE_BUCKET = aws_s3_bucket.archive.id
-      INDEX_BUCKET   = aws_s3_bucket.index.id
-      QUEUE_URL      = aws_sqs_queue.receipts.url
+      ARCHIVE_BUCKET   = aws_s3_bucket.archive.id
+      INDEX_BUCKET     = aws_s3_bucket.index.id
+      QUEUE_URL        = aws_sqs_queue.receipts.url
+      PROOFS_QUEUE_URL = aws_sqs_queue.proofs.url
     }
   }
 

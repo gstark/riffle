@@ -2,11 +2,12 @@
 
 import { S3Client } from "@aws-sdk/client-s3";
 import { SQSClient } from "@aws-sdk/client-sqs";
-import { createSqsQueue, drainQueue } from "../search/queue.ts";
+import { createSqsQueue, drainQueue, sendIds } from "../search/queue.ts";
 import { createS3Source } from "../search/source.ts";
 import { optimize } from "../search/table.ts";
 import { log, requireEnv } from "../shared/runtime.ts";
 import { createReceiptModel } from "./models.ts";
+import { PROOFS_BATCH_IDS } from "./proofs-worker.ts";
 import { openOrCreateReceipts } from "./table.ts";
 import { processBatch } from "./worker.ts";
 
@@ -18,10 +19,13 @@ const CONCURRENCY = 4;
 export async function handler(): Promise<void> {
   const started = Date.now();
   const table = await openOrCreateReceipts(`s3://${requireEnv("INDEX_BUCKET")}`);
+  const sqs = new SQSClient();
+  const proofsQueueUrl = requireEnv("PROOFS_QUEUE_URL");
   const deps = {
     source: createS3Source(new S3Client(), requireEnv("ARCHIVE_BUCKET")),
     table,
     model: createReceiptModel(),
+    sendProofs: (ids: string[]) => sendIds(sqs, proofsQueueUrl, ids, PROOFS_BATCH_IDS),
     concurrency: CONCURRENCY,
     now: () => new Date(),
     log,
@@ -29,7 +33,7 @@ export async function handler(): Promise<void> {
 
   let changes = 0;
   const { drained } = await drainQueue({
-    queue: createSqsQueue(new SQSClient(), requireEnv("QUEUE_URL")),
+    queue: createSqsQueue(sqs, requireEnv("QUEUE_URL")),
     // Each batch writes its rows once at the end, so a small batch finishes well inside the Lambda timeout.
     batchIds: 200,
     handle: async (ids) => {
