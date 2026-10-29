@@ -9,7 +9,7 @@ import WebKit
 /// The visible browser. It shares the Riffle data store with the hidden browser of the proof runner.
 @MainActor @Observable
 final class Browser {
-    let webView = WKWebView(frame: .zero, configuration: RiffleBrowser.configuration())
+    let webView = RiffleBrowser.webView()
     private(set) var address = ""
     @ObservationIgnored private var observation: NSKeyValueObservation?
 

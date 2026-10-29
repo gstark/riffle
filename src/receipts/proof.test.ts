@@ -15,10 +15,12 @@ const page = (fields: Partial<Extract<Visit, { ok: true }>>): Visit => ({
 
 describe("amountTexts", () => {
   it.each<[number, string | null, string[]]>([
-    [123456, "USD", ["1234.56", "1,234.56"]],
-    [1390, "USD", ["13.90"]],
-    [1500, "JPY", ["1500", "1,500"]],
-    [999, null, ["9.99"]],
+    [123456, "USD", ["1234.56", "1,234.56", "1234,56", "1.234,56", "1 234,56"]],
+    [1390, "USD", ["13.90", "13,90"]],
+    [6500, "USD", ["65.00", "65,00", "$65"]],
+    [123400, "EUR", ["1234.00", "1,234.00", "1234,00", "1.234,00", "1 234,00", "€1,234"]],
+    [1500, "JPY", ["1500", "1,500", "1.500", "1 500"]],
+    [999, null, ["9.99", "9,99"]],
   ])("writes %d %s", (minor, currency, expected) => {
     expect(amountTexts(minor, currency)).toEqual(expected);
   });
@@ -27,6 +29,25 @@ describe("amountTexts", () => {
 describe("showsReceipt", () => {
   it("finds the total", () => {
     expect(showsReceipt("Order total: $1,234.56", target)).toBe(true);
+  });
+
+  it.each<[string, string, number]>([
+    ["a European amount", "Gesamt: 1.234,56 €", 123456],
+    ["an amount with a non-breaking space", "Total 1\u00a0234,56", 123456],
+    ["a whole amount without cents", "You paid $1,234 today", 123400],
+    ["cents in another element", "Total\n$44\n.12\nPaid", 4412],
+    ["a symbol in another element", "Total $\n1,234.56", 123456],
+  ])("finds %s", (_, text, total) => {
+    expect(showsReceipt(text, { ...target, total })).toBe(true);
+  });
+
+  it.each<[string, string, number]>([
+    ["a larger number before", "Total: $11,234.56", 123456],
+    ["more digits after", "Total: 1234.567", 123456],
+    ["a whole amount with cents after", "Total: $1,234.99", 123400],
+    ["cents after a space", "Total: $1,234 .99", 123400],
+  ])("does not find the amount in %s", (_, text, total) => {
+    expect(showsReceipt(text, { ...target, total })).toBe(false);
   });
 
   it("finds one of several order IDs", () => {

@@ -1,7 +1,6 @@
 // Query Lambda entry point, behind a Function URL. See infra/search-api.tf.
 
-import { ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import * as lancedb from "@lancedb/lancedb";
 import { createSignedInProofs } from "../receipts/signed-in.ts";
@@ -20,8 +19,6 @@ import { createS3Source } from "./source.ts";
 const CACHE_MS = 5 * 60_000;
 /** A warm Lambda checks for new table versions at most this often, in seconds. */
 const READ_CONSISTENCY_SECONDS = 30;
-/** The Riffle app uploads a PDF right after it gets the URL. */
-const UPLOAD_URL_SECONDS = 5 * 60;
 
 const secrets = new SecretsManagerClient();
 const tokenSecretId = requireEnv("TOKEN_SECRET_ID");
@@ -75,17 +72,11 @@ export const handler = createApi({
   proofs: createSignedInProofs({
     pending: async () => readCandidates(await getProofTables()),
     candidate: async (id) => (await readCandidates(await getProofTables(), id))[0] ?? null,
-    // The checksum stays a signed header, so S3 accepts only this PDF. The archive bucket needs it for Object Lock.
-    presignPut: (key, sha256) =>
-      getSignedUrl(
-        s3,
-        new PutObjectCommand({ Bucket: archiveBucket, Key: key, ContentType: "application/pdf", ChecksumSHA256: sha256 }),
-        { expiresIn: UPLOAD_URL_SECONDS, unhoistableHeaders: new Set(["x-amz-checksum-sha256"]) },
-      ),
-    // A list and not HeadObject: the role may list proofs/ only, and reads no PDFs.
-    pdfExists: async (key) => {
-      const list = await s3.send(new ListObjectsV2Command({ Bucket: archiveBucket, Prefix: key, MaxKeys: 1 }));
-      return list.Contents?.[0]?.Key === key;
+    // The archive bucket has Object Lock, so S3 needs a checksum.
+    putPdf: async (key, pdf) => {
+      await s3.send(
+        new PutObjectCommand({ Bucket: archiveBucket, Key: key, Body: pdf, ContentType: "application/pdf", ChecksumAlgorithm: "SHA256" }),
+      );
     },
     write: async (row) => writeSignedIn((await getProofTables()).signedIn, row),
     now: () => new Date(),

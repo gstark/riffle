@@ -5,23 +5,21 @@ import Foundation
 actor FakeProofsService: ProofsService {
     enum Call: Equatable {
         case pending
-        case ticket(String)
-        case upload(String)
         case record(String)
     }
 
     var sites: [PendingSite]
     var fidelity: String
-    /// The upload of these receipt IDs fails.
-    var failingUploads: Set<String>
+    /// The record of these receipt IDs fails.
+    var failingRecords: Set<String>
     var pendingError: SearchError?
     private(set) var calls: [Call] = []
     private(set) var results: [PageResult] = []
 
-    init(sites: [PendingSite] = [], fidelity: String = "merchant_page", failingUploads: Set<String> = [], pendingError: SearchError? = nil) {
+    init(sites: [PendingSite] = [], fidelity: String = "merchant_page", failingRecords: Set<String> = [], pendingError: SearchError? = nil) {
         self.sites = sites
         self.fidelity = fidelity
-        self.failingUploads = failingUploads
+        self.failingRecords = failingRecords
         self.pendingError = pendingError
     }
 
@@ -35,19 +33,9 @@ actor FakeProofsService: ProofsService {
         return sites
     }
 
-    func uploadTicket(id: String, sha256: String) async throws -> UploadTicket {
-        calls.append(.ticket(id))
-        return UploadTicket(url: URL(string: "https://s3.example.com/\(id)")!, key: "proofs/\(id).pdf")
-    }
-
-    func upload(_ pdf: Data, to ticket: UploadTicket, sha256: String) async throws {
-        let id = ticket.url.lastPathComponent
-        calls.append(.upload(id))
-        if failingUploads.contains(id) { throw SearchError.server }
-    }
-
     func record(_ result: PageResult) async throws -> ProofFidelity {
         calls.append(.record(result.id))
+        if failingRecords.contains(result.id) { throw SearchError.server }
         results.append(result)
         return ProofFidelity(fidelity)
     }

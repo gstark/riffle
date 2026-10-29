@@ -7,8 +7,8 @@ import { classify, type Fidelity } from "./proof.ts";
 
 /** Fidelities of `receipt_proofs` that the Riffle app can make better with a sign-in. */
 export const PENDING_FIDELITIES: readonly Fidelity[] = ["login_required", "blocked"];
-/** Fidelities that the signed-in result keeps. Other results leave the receipt pending. */
-const KEPT: ReadonlySet<Fidelity> = new Set(["merchant_page", "unverified_page"]);
+/** Fidelities that write a signed-in row. Other results leave the receipt pending. */
+const WRITTEN: ReadonlySet<Fidelity> = new Set(["merchant_page", "unverified_page"]);
 
 const AMAZON_ORDER_ID = /\b\d{3}-\d{7}-\d{7}\b/;
 
@@ -25,6 +25,8 @@ export interface Candidate {
   currency: string | null;
   url: string | null;
   finalUrl: string | null;
+  /** True when emails of other receipts have the same link. Then the link cannot go to the page of this receipt. */
+  sharedLink: boolean;
 }
 
 export interface PendingReceipt {
@@ -60,7 +62,8 @@ export type SignedInRow = {
   url: string;
   finalUrl: string;
   httpStatus: number | null;
-  pdfKey: string;
+  /** Null for a `wrong_page` */
+  pdfKey: string | null;
   checkedAt: Date;
 };
 
@@ -71,6 +74,8 @@ export interface PageResult {
   status: number | null;
   hasPasswordField: boolean;
   text: string;
+  /** The printed page. The Riffle app prints only a page that shows the total or the order ID. */
+  pdf: Uint8Array | null;
 }
 
 export interface SignedInDeps {
@@ -78,12 +83,8 @@ export interface SignedInDeps {
   pending: () => Promise<Candidate[]>;
   /** The receipt with this ID when its proof is `login_required` or `blocked`, with or without a signed-in row. */
   candidate: (id: string) => Promise<Candidate | null>;
-  /**
-   * A presigned PUT URL for a PDF in the archive bucket. The archive bucket has Object Lock, so S3 needs a checksum:
-   * the upload must send `sha256` (base64) in the x-amz-checksum-sha256 header.
-   */
-  presignPut: (key: string, sha256: string) => Promise<string>;
-  pdfExists: (key: string) => Promise<boolean>;
+  /** Writes a PDF to the archive bucket. */
+  putPdf: (key: string, pdf: Uint8Array) => Promise<void>;
   write: (row: SignedInRow) => Promise<void>;
   now: () => Date;
 }
@@ -100,6 +101,18 @@ function host(url: string | null): string | null {
   }
 }
 
+/**
+ * The links that the emails of two or more messages have, for example a "manage billing" link in each monthly email.
+ * `proofs` are the receipt links of all receipts.
+ */
+export function sharedLinks(proofs: { messageId: string; url: string | null }[]): Set<string> {
+  const messages = new Map<string, Set<string>>();
+  for (const { messageId, url } of proofs) {
+    if (url) messages.set(url, (messages.get(url) ?? new Set()).add(messageId));
+  }
+  return new Set([...messages].filter(([, ids]) => ids.size >= 2).map(([url]) => url));
+}
+
 /** The site of the session that the receipt needs, for example "amazon.com". Null when the receipt has no link. */
 export function siteKey(candidate: Candidate): string | null {
   if (amazonOrderId(candidate)) return "amazon.com";
@@ -107,11 +120,14 @@ export function siteKey(candidate: Candidate): string | null {
   return name ? name.split(".").slice(-2).join(".") : null;
 }
 
-/** The page that Riffle prints: the Amazon invoice of the order, or the receipt link. */
+/**
+ * The page that Riffle prints: the Amazon invoice of the order, or the receipt link. Null when the link is shared
+ * with other receipts.
+ */
 export function printUrl(candidate: Candidate): string | null {
   const orderId = amazonOrderId(candidate);
   if (orderId) return `https://www.amazon.com/gp/css/summary/print.html?orderID=${orderId}`;
-  return candidate.url;
+  return candidate.sharedLink ? null : candidate.url;
 }
 
 /** Key of the signed-in PDF of receipt "<messageId>:<n>" in the archive bucket. */
@@ -154,22 +170,25 @@ export function createSignedInProofs(deps: SignedInDeps) {
   return {
     pending: async (): Promise<PendingSite[]> => groupBySite(await deps.pending()),
 
-    upload: async (id: string, sha256: string): Promise<{ url: string; key: string }> => {
-      const key = signedInPdfKey(await find(id));
-      return { url: await deps.presignPut(key, sha256), key };
-    },
-
-    /** Classifies the page. Writes a row only for a page that Riffle keeps, and only when its PDF is in S3. */
+    /**
+     * Classifies the page. A page that shows the receipt keeps its PDF in the archive bucket. A page that does not
+     * show it gets the fidelity `wrong_page`, without a PDF. Other results write no row, so the receipt stays pending.
+     */
     result: async (page: PageResult): Promise<{ fidelity: Fidelity }> => {
       const candidate = await find(page.id);
-      const fidelity = classify(
+      const classified = classify(
         { ok: true, status: page.status, finalUrl: page.finalUrl, pdf: new Uint8Array(), download: false, hasPasswordField: page.hasPasswordField, text: page.text },
         candidate,
       );
-      if (!KEPT.has(fidelity)) return { fidelity };
+      if (!WRITTEN.has(classified)) return { fidelity: classified };
 
-      const pdfKey = signedInPdfKey(candidate);
-      if (!(await deps.pdfExists(pdfKey))) throw new BadRequestError(`Upload the PDF of receipt ${page.id} first`);
+      const fidelity = classified === "merchant_page" ? "merchant_page" : "wrong_page";
+      let pdfKey: string | null = null;
+      if (fidelity === "merchant_page") {
+        if (!page.pdf) throw new BadRequestError(`The page of ${candidate.id} shows the receipt, but the PDF is missing`);
+        pdfKey = signedInPdfKey(candidate);
+        await deps.putPdf(pdfKey, page.pdf);
+      }
       await deps.write({
         id: candidate.id,
         messageId: candidate.messageId,

@@ -4,6 +4,7 @@ import {
   createSignedInProofs,
   groupBySite,
   printUrl,
+  sharedLinks,
   siteKey,
   type Candidate,
   type PageResult,
@@ -22,6 +23,7 @@ function candidate(fields: Partial<Candidate> = {}): Candidate {
     currency: "USD",
     url: "https://click.uber.com/receipt/abc",
     finalUrl: "https://auth.uber.com/login?next=x",
+    sharedLink: false,
     ...fields,
   };
 }
@@ -66,6 +68,32 @@ describe("printUrl", () => {
   it("is the receipt link for other merchants", () => {
     expect(printUrl(candidate())).toBe("https://click.uber.com/receipt/abc");
   });
+
+  it("is null for a link that other receipts share", () => {
+    expect(printUrl(candidate({ sharedLink: true }))).toBeNull();
+  });
+
+  it("is the Amazon invoice also when the link is shared", () => {
+    expect(printUrl(amazon({ sharedLink: true }))).toContain("orderID=112-1234567-1234567");
+  });
+});
+
+describe("sharedLinks", () => {
+  it("finds the links of two or more messages", () => {
+    const links = sharedLinks([
+      { messageId: "a", url: "https://myftr.page.link/ManageBilling" },
+      { messageId: "b", url: "https://myftr.page.link/ManageBilling" },
+      { messageId: "c", url: "https://click.uber.com/receipt/c" },
+      { messageId: "d", url: null },
+      { messageId: "e", url: null },
+    ]);
+    expect([...links]).toEqual(["https://myftr.page.link/ManageBilling"]);
+  });
+
+  it("counts one message with two receipts once", () => {
+    const url = "https://www.amazon.com/your-orders";
+    expect(sharedLinks([{ messageId: "a", url }, { messageId: "a", url }]).size).toBe(0);
+  });
 });
 
 describe("groupBySite", () => {
@@ -99,22 +127,28 @@ describe("groupBySite", () => {
   it("names a site without merchants after the site", () => {
     expect(groupBySite([candidate({ merchant: null })])[0]?.merchant).toBe("uber.com");
   });
+
+  it("leaves out receipts with a shared link", () => {
+    expect(groupBySite([candidate({ sharedLink: true })])).toEqual([]);
+  });
 });
 
-function setup({ found = candidate(), uploaded = true } = {}) {
+function setup({ found = candidate() } = {}) {
   const written: SignedInRow[] = [];
+  const stored: string[] = [];
   const now = new Date("2026-10-29T12:00:00Z");
   const proofs = createSignedInProofs({
     pending: async () => [found],
     candidate: async (id) => (id === found.id ? found : null),
-    presignPut: async (key, sha256) => `https://s3.example.com/${key}?sha256=${sha256}`,
-    pdfExists: async () => uploaded,
+    putPdf: async (key) => {
+      stored.push(key);
+    },
     write: async (row) => {
       written.push(row);
     },
     now: () => now,
   });
-  return { proofs, written, now };
+  return { proofs, written, stored, now };
 }
 
 const page = (fields: Partial<PageResult> = {}): PageResult => ({
@@ -123,6 +157,7 @@ const page = (fields: Partial<PageResult> = {}): PageResult => ({
   status: 200,
   hasPasswordField: false,
   text: "Total $23.45",
+  pdf: new TextEncoder().encode("%PDF-1.4"),
   ...fields,
 });
 
@@ -132,57 +167,57 @@ describe("createSignedInProofs", () => {
     expect((await proofs.pending()).map((s) => s.site)).toEqual(["uber.com"]);
   });
 
-  it("gives an upload URL for the signed-in PDF of the receipt", async () => {
-    const { proofs } = setup({ found: candidate({ id: "m1:2" }) });
-    expect(await proofs.upload("m1:2", "abc=")).toEqual({
-      url: "https://s3.example.com/proofs/m1/signed-in-2.pdf?sha256=abc=",
-      key: "proofs/m1/signed-in-2.pdf",
-    });
-  });
-
   it("refuses a receipt that does not need a signed-in proof", async () => {
     const { proofs } = setup();
-    await expect(proofs.upload("other:0", "abc=")).rejects.toThrow(BadRequestError);
     await expect(proofs.result(page({ id: "other:0" }))).rejects.toThrow(BadRequestError);
   });
 
-  it("writes a page that shows the receipt", async () => {
-    const { proofs, written, now } = setup();
-    expect(await proofs.result(page())).toEqual({ fidelity: "merchant_page" });
+  it("stores the PDF and writes a page that shows the receipt", async () => {
+    const { proofs, written, stored, now } = setup({ found: candidate({ id: "m1:2" }) });
+    expect(await proofs.result(page({ id: "m1:2" }))).toEqual({ fidelity: "merchant_page" });
+    expect(stored).toEqual(["proofs/m1/signed-in-2.pdf"]);
     expect(written).toEqual([
       {
-        id: "m1:0",
+        id: "m1:2",
         messageId: "m1",
         site: "uber.com",
         fidelity: "merchant_page",
         url: "https://click.uber.com/receipt/abc",
         finalUrl: "https://riders.uber.com/trips/abc",
         httpStatus: 200,
-        pdfKey: "proofs/m1/signed-in-0.pdf",
+        pdfKey: "proofs/m1/signed-in-2.pdf",
         checkedAt: now,
       },
     ]);
   });
 
-  it("writes a page without the total as unverified", async () => {
+  it("writes a page without the total or the order ID as a wrong page, without a PDF", async () => {
+    const { proofs, written, stored } = setup();
+    expect(await proofs.result(page({ text: "Your trips", pdf: null }))).toEqual({ fidelity: "wrong_page" });
+    expect(stored).toEqual([]);
+    expect(written[0]).toMatchObject({ fidelity: "wrong_page", pdfKey: null });
+  });
+
+  it("does not store a PDF of a wrong page", async () => {
+    const { proofs, stored } = setup();
+    expect(await proofs.result(page({ text: "Your trips" }))).toEqual({ fidelity: "wrong_page" });
+    expect(stored).toEqual([]);
+  });
+
+  it("refuses a page that shows the receipt without its PDF", async () => {
     const { proofs, written } = setup();
-    expect(await proofs.result(page({ text: "Your trips" }))).toEqual({ fidelity: "unverified_page" });
-    expect(written[0]?.fidelity).toBe("unverified_page");
+    await expect(proofs.result(page({ pdf: null }))).rejects.toThrow(BadRequestError);
+    expect(written).toEqual([]);
   });
 
   it.each<[string, Partial<PageResult>, string]>([
     ["a sign-in page", { hasPasswordField: true }, "login_required"],
     ["a robot check", { text: "Are you a robot?" }, "blocked"],
     ["an error page", { status: 404 }, "link_failed"],
-  ])("does not write %s, so the receipt stays pending", async (_, fields, fidelity) => {
-    const { proofs, written } = setup();
+  ])("does not store or write %s, so the receipt stays pending", async (_, fields, fidelity) => {
+    const { proofs, written, stored } = setup();
     expect(await proofs.result(page(fields))).toEqual({ fidelity });
     expect(written).toEqual([]);
-  });
-
-  it("refuses a result before the PDF is uploaded", async () => {
-    const { proofs, written } = setup({ uploaded: false });
-    await expect(proofs.result(page())).rejects.toThrow("Upload the PDF of receipt m1:0 first");
-    expect(written).toEqual([]);
+    expect(stored).toEqual([]);
   });
 });

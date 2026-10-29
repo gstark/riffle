@@ -23,38 +23,22 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret")
     }
 
-    @Test func uploadTicketRequest() throws {
-        let request = try service.makeRequest(.upload(id: "m1:0", sha256: "abc="))
-        #expect(request.url?.absoluteString == "https://search.example.com/proofs/upload")
-        #expect(request.httpMethod == "POST")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        let json = try body(request)
-        #expect(json["id"] as? String == "m1:0")
-        #expect(json["sha256"] as? String == "abc=")
-    }
-
     @Test func resultRequestSendsANullStatus() throws {
-        let result = PageResult(id: "m1:0", finalUrl: "https://example.com/", status: nil, hasPasswordField: false, text: "Total")
+        let result = PageResult(
+            id: "m1:0", finalUrl: "https://example.com/", status: nil, hasPasswordField: false, text: "Total", pdf: Data("%PDF".utf8)
+        )
         let json = try body(service.makeRequest(.result(result)))
         #expect(json["id"] as? String == "m1:0")
         #expect(json["finalUrl"] as? String == "https://example.com/")
         #expect(json["status"] is NSNull)
         #expect(json["hasPasswordField"] as? Bool == false)
         #expect(json["text"] as? String == "Total")
+        #expect(json["pdf"] as? String == "JVBERg==")
     }
 
-    @Test func uploadRequestSendsTheChecksum() {
-        let ticket = UploadTicket(url: URL(string: "https://s3.example.com/proofs/m1/signed-in-0.pdf?X-Amz-Signature=x")!, key: "k")
-        let request = HTTPProofsService.uploadRequest(ticket, sha256: "abc=")
-        #expect(request.url == ticket.url)
-        #expect(request.httpMethod == "PUT")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/pdf")
-        #expect(request.value(forHTTPHeaderField: "x-amz-checksum-sha256") == "abc=")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
-    }
-
-    @Test func sha256IsBase64() {
-        #expect(HTTPProofsService.sha256(Data()) == "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=")
+    @Test func resultRequestLeavesOutAMissingPdf() throws {
+        let result = PageResult(id: "m1:0", finalUrl: "https://example.com/", status: 200, hasPasswordField: false, text: "Help", pdf: nil)
+        #expect(try body(service.makeRequest(.result(result)))["pdf"] == nil)
     }
 
     @Test func decodesPendingSites() throws {

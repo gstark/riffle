@@ -33,7 +33,7 @@ resource "aws_iam_role" "search" {
 }
 
 # Read: the index, the label names, the token, and the two Bedrock models.
-# Write: only the signed_in_proofs table, and the signed-in PDFs that the Riffle app uploads with a presigned URL.
+# Write: only the signed_in_proofs table, and the signed-in PDFs that the Riffle app sends to the result route.
 resource "aws_iam_role_policy" "search" {
   role = aws_iam_role.search.id
 
@@ -66,19 +66,10 @@ resource "aws_iam_role_policy" "search" {
         Resource = "${aws_s3_bucket.index.arn}/signed_in_proofs.lance/*"
       },
       {
-        # A presigned URL uses the permissions of the role that signs it.
         Sid      = "PutSignedInPdfs"
         Effect   = "Allow"
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.archive.arn}/proofs/*"
-      },
-      {
-        # The result route lists the key to check that the Riffle app uploaded the PDF.
-        Sid       = "ListProofs"
-        Effect    = "Allow"
-        Action    = "s3:ListBucket"
-        Resource  = aws_s3_bucket.archive.arn
-        Condition = { StringLike = { "s3:prefix" = ["proofs/*"] } }
       },
       {
         Sid      = "UseArchiveKey"

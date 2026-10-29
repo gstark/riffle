@@ -57,7 +57,7 @@ import Testing
 
         await model.makePDFs(site: "uber.com")
 
-        #expect(model.status(of: "uber.com") == .done(made: 1, skipped: 0))
+        #expect(model.status(of: "uber.com") == .done(made: 1, wrong: 0, skipped: 0))
         #expect(!model.isRunning)
         #expect(defaults.stringArray(forKey: "signedInSites") == ["uber.com"])
     }
@@ -71,7 +71,7 @@ import Testing
         await model.runInBackground()
 
         #expect(loader.loaded == uber.receipts.map(\.printUrl))
-        #expect(model.status(of: "uber.com") == .done(made: 1, skipped: 0))
+        #expect(model.status(of: "uber.com") == .done(made: 1, wrong: 0, skipped: 0))
         #expect(model.status(of: "heroku.com") == .needsSignIn)
         #expect(!model.needsAttention)
     }
@@ -123,7 +123,7 @@ import Testing
 
         await first.value
         #expect(loader.loaded == (uber.receipts + heroku.receipts).map(\.printUrl))
-        #expect(model.status(of: "heroku.com") == .done(made: 1, skipped: 0))
+        #expect(model.status(of: "heroku.com") == .done(made: 1, wrong: 0, skipped: 0))
         #expect(model.progress == nil)
         #expect(model.queue.isEmpty)
     }
@@ -152,7 +152,8 @@ import Testing
 
     @Test func statusText() {
         #expect(ProofsModel.SiteStatus.working(done: 12, total: 37).text == "Working 12 of 37")
-        #expect(ProofsModel.SiteStatus.done(made: 3, skipped: 0).text == "Done: 3 PDFs")
-        #expect(ProofsModel.SiteStatus.done(made: 3, skipped: 1).text == "Done: 3 PDFs, 1 failed")
+        #expect(ProofsModel.SiteStatus.done(made: 3, wrong: 0, skipped: 0).text == "Done: 3 PDFs")
+        #expect(ProofsModel.SiteStatus.done(made: 3, wrong: 0, skipped: 1).text == "Done: 3 PDFs, 1 failed")
+        #expect(ProofsModel.SiteStatus.done(made: 3, wrong: 7, skipped: 1).text == "Done: 3 PDFs, 7 not receipts, 1 failed")
     }
 }

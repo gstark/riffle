@@ -20,9 +20,6 @@ function event(method: string, path: string, { token = "secret", body, base64 = 
   };
 }
 
-/** SHA-256 of an empty file, in base64. */
-const SHA256 = "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=";
-
 const filters: Filters = {
   text: "renewal",
   from: ["acme"],
@@ -49,7 +46,6 @@ function setup({ fail }: { fail?: Error } = {}) {
     health: async () => new Date("2026-10-23T14:42:00.000Z"),
     proofs: {
       pending: async () => [{ site: "amazon.com", merchant: "Amazon", receipts: [] }],
-      upload: async (id, sha256) => ({ url: `https://s3.example.com/${id}?${sha256}`, key: `proofs/${id}.pdf` }),
       result: async (page) => {
         results.push(page);
         return { fidelity: "merchant_page" };
@@ -166,30 +162,30 @@ describe("createApi", () => {
     expect(JSON.parse(result.body)).toEqual({ sites: [{ site: "amazon.com", merchant: "Amazon", receipts: [] }] });
   });
 
-  it("gives an upload URL", async () => {
-    const { api } = setup();
-
-    const body = JSON.stringify({ id: "m1:0", sha256: SHA256 });
-    const result = await api(event("POST", "/proofs/upload", { body }));
-
-    expect(JSON.parse(result.body)).toEqual({ url: `https://s3.example.com/m1:0?${SHA256}`, key: "proofs/m1:0.pdf" });
-  });
-
-  it("records a page result", async () => {
+  it("records a page result with its PDF", async () => {
     const { api, results } = setup();
     const page = { id: "m1:0", finalUrl: "https://example.com/", status: null, hasPasswordField: false, text: "Total" };
+    const pdf = Buffer.from("%PDF-1.4").toString("base64");
 
-    const result = await api(event("POST", "/proofs/result", { body: JSON.stringify(page) }));
+    const result = await api(event("POST", "/proofs/result", { body: JSON.stringify({ ...page, pdf }) }));
 
     expect(JSON.parse(result.body)).toEqual({ fidelity: "merchant_page" });
-    expect(results).toEqual([page]);
+    expect(results).toEqual([{ ...page, pdf: new Uint8Array(Buffer.from("%PDF-1.4")) }]);
+  });
+
+  it("records a page result without a PDF", async () => {
+    const { api, results } = setup();
+    const page = { id: "m1:0", finalUrl: "https://example.com/", status: null, hasPasswordField: false, text: "Help" };
+
+    await api(event("POST", "/proofs/result", { body: JSON.stringify(page) }));
+
+    expect(results).toEqual([{ ...page, pdf: null }]);
   });
 
   it.each<[string, string]>([
-    ["/proofs/upload", "{}"],
-    ["/proofs/upload", '{"id":"m1:0","sha256":"short"}'],
     ["/proofs/result", '{"id":"m1:0"}'],
-    ["/proofs/result", '{"id":"m1:0","finalUrl":"x","status":1.5,"hasPasswordField":false,"text":""}'],
+    ["/proofs/result", '{"id":"m1:0","finalUrl":"x","status":1.5,"hasPasswordField":false,"text":"","pdf":"JVBERg=="}'],
+    ["/proofs/result", '{"id":"m1:0","finalUrl":"x","status":null,"hasPasswordField":false,"text":"","pdf":"not base64!"}'],
   ])("rejects the body of %s: %s", async (path, body) => {
     const { api, results } = setup();
 

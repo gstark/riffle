@@ -1,5 +1,5 @@
 // Rules that find a sign-in page in the Riffle browser. The server has stricter rules (classify() in
-// src/receipts/proof.ts). These rules stop the runner before it prints and uploads a sign-in page.
+// src/receipts/proof.ts). These rules stop the runner before it prints and sends a sign-in page.
 
 import Foundation
 

@@ -66,36 +66,28 @@ public struct PendingSite: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Where to PUT the PDF of a receipt.
-public struct UploadTicket: Decodable, Equatable, Sendable {
-    public let url: URL
-    public let key: String
-
-    public init(url: URL, key: String) {
-        self.url = url
-        self.key = key
-    }
-}
-
-/// What Riffle saw on the printed page. The server classifies it.
+/// What Riffle saw on the page, and its PDF. The server classifies it.
 public struct PageResult: Encodable, Equatable, Sendable {
     public let id: String
     public let finalUrl: String
     public let status: Int?
     public let hasPasswordField: Bool
     public let text: String
+    /// Nil when the page does not show the total or the order ID. Then Riffle does not print it.
+    public let pdf: Data?
 
-    public init(id: String, finalUrl: String, status: Int?, hasPasswordField: Bool, text: String) {
+    public init(id: String, finalUrl: String, status: Int?, hasPasswordField: Bool, text: String, pdf: Data?) {
         self.id = id
         self.finalUrl = finalUrl
         self.status = status
         self.hasPasswordField = hasPasswordField
         self.text = text
+        self.pdf = pdf
     }
 
     // `status` is null in the JSON when it is nil. The API needs the key.
     private enum CodingKeys: String, CodingKey {
-        case id, finalUrl, status, hasPasswordField, text
+        case id, finalUrl, status, hasPasswordField, text, pdf
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -105,6 +97,7 @@ public struct PageResult: Encodable, Equatable, Sendable {
         try container.encode(status, forKey: .status)
         try container.encode(hasPasswordField, forKey: .hasPasswordField)
         try container.encode(text, forKey: .text)
+        try container.encodeIfPresent(pdf?.base64EncodedString(), forKey: .pdf)
     }
 }
 
@@ -120,4 +113,6 @@ public struct ProofFidelity: Decodable, Equatable, Sendable {
     public var needsSignIn: Bool { fidelity == "login_required" || fidelity == "blocked" }
     /// The server kept the page.
     public var isKept: Bool { fidelity == "merchant_page" || fidelity == "unverified_page" }
+    /// The page loaded, but it does not show the total or the order ID. The server keeps no PDF.
+    public var isWrongPage: Bool { fidelity == "wrong_page" }
 }

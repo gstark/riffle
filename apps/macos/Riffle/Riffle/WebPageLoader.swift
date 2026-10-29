@@ -12,10 +12,15 @@ enum RiffleBrowser {
     private static let storeID = UUID(uuidString: "6F1B2C55-0B5E-4C1D-9E7A-2D3C4B5A6F70")!
     static let dataStore = WKWebsiteDataStore(forIdentifier: storeID)
 
-    static func configuration() -> WKWebViewConfiguration {
+    /// A browser with the Riffle data store. You can inspect it with the Develop menu of Safari.
+    static func webView(frame: NSRect = .zero) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
-        return configuration
+        // Look like Safari. Some sites do not trust a browser without "Safari" in the user agent.
+        configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
+        let webView = WKWebView(frame: frame, configuration: configuration)
+        webView.isInspectable = true
+        return webView
     }
 }
 
@@ -29,6 +34,10 @@ final class WebPageLoader: NSObject, PageLoader, WKNavigationDelegate {
     private static let timeout: Duration = .seconds(30)
     /// Receipt pages often fill in their content with scripts after the load event.
     private static let settle: Duration = .seconds(2)
+    /// A page with less visible text is probably not ready. Riffle waits for more text, up to `maxSettle` in total.
+    private static let thinText = 200
+    private static let maxSettle: Duration = .seconds(10)
+    private static let poll: Duration = .seconds(1)
     private static let pageScript = """
         return {
           hasPasswordField: document.querySelector('input[type="password"]') !== null,
@@ -36,7 +45,7 @@ final class WebPageLoader: NSObject, PageLoader, WKNavigationDelegate {
         };
         """
 
-    private let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 1400), configuration: RiffleBrowser.configuration())
+    private let webView = RiffleBrowser.webView(frame: NSRect(x: 0, y: 0, width: 1024, height: 1400))
     /// WebKit prints only a view in a window. The window stays off the screen.
     private let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 1024, height: 1400), styleMask: [.borderless], backing: .buffered, defer: false)
     private var navigation: CheckedContinuation<Void, any Error>?
@@ -65,6 +74,18 @@ final class WebPageLoader: NSObject, PageLoader, WKNavigationDelegate {
         }
         try await Task.sleep(for: Self.settle)
 
+        var waited = Self.settle
+        var page = try await readPage()
+        while !page.hasPasswordField, page.text.trimmingCharacters(in: .whitespacesAndNewlines).count < Self.thinText,
+              waited < Self.maxSettle {
+            try await Task.sleep(for: Self.poll)
+            waited += Self.poll
+            page = try await readPage()
+        }
+        return page
+    }
+
+    private func readPage() async throws -> LoadedPage {
         let info = try await webView.callAsyncJavaScript(Self.pageScript, contentWorld: .defaultClient) as? [String: Any]
         return LoadedPage(
             finalUrl: webView.url,

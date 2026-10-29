@@ -18,6 +18,8 @@ export const FIDELITIES = [
   "blocked",
   /** Other HTTP errors, expired links, and timeouts. */
   "link_failed",
+  /** Only in `signed_in_proofs`: the page loaded with a sign-in, but its PDF does not show the charge. No PDF is kept. */
+  "wrong_page",
   /** The email has no link that can go to a receipt. */
   "no_link",
 ] as const;
@@ -69,19 +71,52 @@ function isLoginUrl(url: string): boolean {
   }
 }
 
-/** The ways a page can write the amount, for example "1234.56" and "1,234.56". */
+/** Symbols for a whole amount without cents, for example "$65". */
+const SYMBOLS: Record<string, string> = { USD: "$", CAD: "$", AUD: "$", EUR: "€", GBP: "£" };
+
+/** Puts `separator` between groups of three digits. */
+const group = (whole: string, separator: string): string => whole.replace(/\B(?=(\d{3})+(?!\d))/g, separator);
+
+/**
+ * The ways a page can write the amount: "1234.56", "1,234.56", "1234,56", "1.234,56", "1 234,56", and "$1,234" for an
+ * amount without cents. ReceiptScan.swift in the Riffle app has the same rules.
+ */
 export function amountTexts(minor: number, currency: string | null): string[] {
   const digits = currencyDigits(currency);
-  const value = minor / 10 ** digits;
-  const options = { minimumFractionDigits: digits, maximumFractionDigits: digits };
-  return [...new Set([value.toFixed(digits), value.toLocaleString("en-US", options)])];
+  const [whole = "", fraction] = (minor / 10 ** digits).toFixed(digits).split(".");
+  const join = (text: string, point: string) => (fraction === undefined ? text : `${text}${point}${fraction}`);
+  const texts = [
+    join(whole, "."),
+    join(group(whole, ","), "."),
+    join(whole, ","),
+    join(group(whole, "."), ","),
+    join(group(whole, " "), ","),
+  ];
+  const symbol = SYMBOLS[currency ?? ""];
+  if (symbol && fraction !== undefined && /^0+$/.test(fraction)) texts.push(`${symbol}${group(whole, ",")}`);
+  return [...new Set(texts)];
 }
 
-/** True when the text shows the total or the order ID of the receipt. */
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A pattern for an amount that also finds it with a space between its parts. A page can put the parts in different
+ * elements: `<div>$44</div><span>.12</span>` has the text "$44\n.12".
+ */
+const amountPattern = (amount: string): string => (amount.match(/\d+|[^\d\s]/g) ?? []).map(escape).join(" ?");
+
+/**
+ * True when the text shows the total or the order ID of the receipt. An amount must not be part of a larger number:
+ * "13.90" is not in "113.90" or "13.905". Each run of white space counts as one space.
+ */
 export function showsReceipt(text: string, target: ProofTarget): boolean {
+  const flat = text.replace(/\s+/g, " ");
   const amounts = target.total === null ? [] : amountTexts(target.total, target.currency);
   const orderIds = (target.orderId ?? "").split(/,\s*/).filter((id) => id.length >= 4);
-  return [...amounts, ...orderIds].some((value) => text.includes(value));
+  return (
+    amounts.some((amount) => new RegExp(`(?<![\\d.,])${amountPattern(amount)}(?!\\d| ?[.,] ?\\d)`).test(flat)) ||
+    orderIds.some((id) => flat.includes(id))
+  );
 }
 
 /** The fidelity of a visit to the receipt link of `target`. */

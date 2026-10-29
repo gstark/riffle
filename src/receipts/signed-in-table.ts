@@ -4,9 +4,10 @@
 import * as lancedb from "@lancedb/lancedb";
 import { Field, Int32, Schema, TimestampMillisecond, Utf8 } from "apache-arrow";
 import { sqlString } from "../search/where.ts";
+import type { Fidelity } from "./proof.ts";
 import { PROOFS_TABLE } from "./proof-table.ts";
 import { RECEIPTS_TABLE } from "./schema.ts";
-import { PENDING_FIDELITIES, type Candidate, type SignedInRow } from "./signed-in.ts";
+import { PENDING_FIDELITIES, sharedLinks, type Candidate, type SignedInRow } from "./signed-in.ts";
 
 export const SIGNED_IN_TABLE = "signed_in_proofs";
 /** The table gets one small fragment for each row. Compact it after this many rows. */
@@ -22,7 +23,7 @@ export const signedInSchema = new Schema([
   text("url", false),
   text("finalUrl", false),
   new Field("httpStatus", new Int32(), true),
-  text("pdfKey", false),
+  text("pdfKey"),
   new Field("checkedAt", new TimestampMillisecond(), false),
 ]);
 
@@ -62,15 +63,15 @@ const numberOrNull = (value: unknown) => (value === null || value === undefined 
 
 /**
  * Receipts with a `login_required` or `blocked` proof. With `id`, only that receipt, also when it has a signed-in
- * row. Without `id`, all receipts without a signed-in row.
+ * row. Without `id`, all receipts without a signed-in row. `sharedLink` compares the links of all receipts.
  */
 export async function readCandidates(tables: CandidateTables, id?: string): Promise<Candidate[]> {
-  const pending = `fidelity IN (${PENDING_FIDELITIES.map(sqlString).join(", ")})`;
-  const proofRows: Row[] = await tables.proofs
-    .query()
-    .where(id === undefined ? pending : `${pending} AND id = ${sqlString(id)}`)
-    .select(["id", "url", "finalUrl"])
-    .toArray();
+  // The links of all receipts, to find the links that more than one email has.
+  const allProofs: Row[] = await tables.proofs.query().select(["id", "messageId", "url", "finalUrl", "fidelity"]).toArray();
+  const shared = sharedLinks(allProofs.map((row) => ({ messageId: String(row.messageId), url: textOrNull(row.url) })));
+  const proofRows = allProofs.filter(
+    (row) => PENDING_FIDELITIES.includes(row.fidelity as Fidelity) && (id === undefined || row.id === id),
+  );
 
   const done =
     id === undefined
@@ -98,6 +99,7 @@ export async function readCandidates(tables: CandidateTables, id?: string): Prom
       currency: textOrNull(row.currency),
       url: textOrNull(proof?.url),
       finalUrl: textOrNull(proof?.finalUrl),
+      sharedLink: shared.has(String(proof?.url)),
     };
   });
 }

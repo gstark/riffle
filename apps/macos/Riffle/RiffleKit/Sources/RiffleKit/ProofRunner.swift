@@ -1,4 +1,5 @@
-// Makes the signed-in PDFs of one site: load each page, check for a sign-in page, print, upload, and record.
+// Makes the signed-in PDFs of one site: load each page, check for a sign-in page, look for the receipt in the text,
+// print a page that shows it, and send the result.
 
 import Foundation
 
@@ -30,8 +31,8 @@ public protocol PageLoader: AnyObject {
 
 /// How the run of one site ended.
 public enum SiteOutcome: Equatable, Sendable {
-    /// All receipts were tried. `skipped` receipts failed and stay pending.
-    case done(made: Int, skipped: Int)
+    /// All receipts were tried. `wrong` pages do not show the charge. `skipped` receipts failed and stay pending.
+    case done(made: Int, wrong: Int, skipped: Int)
     /// A page asked for a sign-in, or the server saw a sign-in page or a robot check.
     case needsSignIn
     /// Too many receipts failed in sequence.
@@ -69,6 +70,7 @@ public final class ProofRunner {
     /// Makes the PDFs of `receipts`, in order. `progress` gets the number of receipts that are finished.
     public func run(_ receipts: [PendingReceipt], progress: (Int) -> Void = { _ in }) async -> SiteOutcome {
         var made = 0
+        var wrong = 0
         var skipped = 0
         var failures = 0
         for (index, receipt) in receipts.enumerated() {
@@ -76,12 +78,11 @@ public final class ProofRunner {
                 do { try await sleep(pause) } catch { return .cancelled }
             }
             do {
-                if try await makeProof(receipt) {
-                    made += 1
-                    failures = 0
-                } else {
-                    return .needsSignIn
-                }
+                let result = try await makeProof(receipt)
+                if result.needsSignIn { return .needsSignIn }
+                // An error page (link_failed) stays pending, as a failed step does.
+                if result.isKept { made += 1 } else if result.isWrongPage { wrong += 1 } else { skipped += 1 }
+                failures = 0
             } catch is CancellationError {
                 return .cancelled
             } catch SearchError.unauthorized {
@@ -93,26 +94,26 @@ public final class ProofRunner {
             }
             progress(index + 1)
         }
-        return .done(made: made, skipped: skipped)
+        return .done(made: made, wrong: wrong, skipped: skipped)
     }
 
-    /// Returns false when the page is a sign-in page. Throws when a step fails.
-    private func makeProof(_ receipt: PendingReceipt) async throws -> Bool {
+    /// The fidelity that the server gave the page. Throws when a step fails.
+    private func makeProof(_ receipt: PendingReceipt) async throws -> ProofFidelity {
         let page = try await loader.load(receipt.printUrl)
-        if SignInCheck.isSignInPage(url: page.finalUrl, hasPasswordField: page.hasPasswordField) { return false }
+        if SignInCheck.isSignInPage(url: page.finalUrl, hasPasswordField: page.hasPasswordField) {
+            return ProofFidelity("login_required")
+        }
 
-        let pdf = try await loader.pdf()
-        let sha256 = HTTPProofsService.sha256(pdf)
-        let ticket = try await service.uploadTicket(id: receipt.id, sha256: sha256)
-        try await service.upload(pdf, to: ticket, sha256: sha256)
-        let result = try await service.record(PageResult(
+        // A page without the total or the order ID is not printed. The server records it as a wrong page.
+        let pdf = ReceiptScan.shows(receipt, in: page.text) ? try await loader.pdf() : nil
+        return try await service.record(PageResult(
             id: receipt.id,
             finalUrl: (page.finalUrl ?? receipt.printUrl).absoluteString,
             status: page.status,
             hasPasswordField: page.hasPasswordField,
-            text: String(page.text.prefix(Self.maxText))
+            text: String(page.text.prefix(Self.maxText)),
+            pdf: pdf
         ))
-        return !result.needsSignIn
     }
 
     static func message(_ error: any Error) -> String {

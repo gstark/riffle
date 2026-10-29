@@ -83,6 +83,7 @@ describe("signed-in proofs table", () => {
       currency: "USD",
       url: "https://example.com/login",
       finalUrl: "https://login.example.com/login",
+      sharedLink: false,
     });
     expect(candidates[0]?.date).toBeInstanceOf(Date);
   });
@@ -91,6 +92,23 @@ describe("signed-in proofs table", () => {
     const tables = await setup();
     expect((await readCandidates(tables, "done:0")).map((c) => c.id)).toEqual(["done:0"]);
     expect(await readCandidates(tables, "page:0")).toEqual([]);
+  });
+
+  it("marks a link that the email of another receipt also has", async () => {
+    const tables = await setup();
+    // "page" has a good proof, but its email has the same link as "login".
+    await replaceProofs(tables.proofs, ["page"], [{ ...proof("page", "merchant_page"), url: "https://example.com/login" }]);
+
+    const candidates = await readCandidates(tables);
+    expect(candidates.find((c) => c.id === "login:0")?.sharedLink).toBe(true);
+    expect(candidates.find((c) => c.id === "blocked:0")?.sharedLink).toBe(false);
+  });
+
+  it("writes a wrong page without a PDF", async () => {
+    const tables = await setup();
+    await writeSignedIn(tables.signedIn, { ...signedIn("login"), fidelity: "wrong_page", pdfKey: null });
+    const rows = await tables.signedIn.query().where("id = 'login:0'").toArray();
+    expect(rows[0]).toMatchObject({ fidelity: "wrong_page", pdfKey: null });
   });
 
   it("replaces the row of a receipt", async () => {

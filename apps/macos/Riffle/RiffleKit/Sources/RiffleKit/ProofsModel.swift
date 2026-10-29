@@ -13,7 +13,7 @@ public final class ProofsModel {
         /// The site waits in the queue for the running site.
         case queued
         case working(done: Int, total: Int)
-        case done(made: Int, skipped: Int)
+        case done(made: Int, wrong: Int, skipped: Int)
         case failed(String)
 
         public var text: String {
@@ -22,8 +22,9 @@ public final class ProofsModel {
             case .ready: "Ready"
             case .queued: "Waiting"
             case .working(let done, let total): "Working \(done) of \(total)"
-            case .done(let made, 0): "Done: \(made) PDFs"
-            case .done(let made, let skipped): "Done: \(made) PDFs, \(skipped) failed"
+            case .done(let made, let wrong, let skipped):
+                (["Done: \(made) PDFs"] + (wrong > 0 ? ["\(wrong) not receipts"] : []) + (skipped > 0 ? ["\(skipped) failed"] : []))
+                    .joined(separator: ", ")
             case .failed(let message): message
             }
         }
@@ -192,9 +193,10 @@ public final class ProofsModel {
 
     private func record(_ outcome: SiteOutcome, for site: String) {
         switch outcome {
-        case .done(let made, let skipped):
-            statuses[site] = .done(made: made, skipped: skipped)
-            if made > 0 {
+        case .done(let made, let wrong, let skipped):
+            statuses[site] = .done(made: made, wrong: wrong, skipped: skipped)
+            // A wrong page also proves the session: the page loaded without a sign-in.
+            if made + wrong > 0 {
                 signedInSites.insert(site)
                 expiredSites.remove(site)
             }

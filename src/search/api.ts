@@ -42,15 +42,19 @@ const json = (statusCode: number, value: unknown): FunctionUrlResult => ({
   body: JSON.stringify(value),
 });
 
-/** `sha256` is the base64 SHA-256 of the PDF. */
-const UploadBodySchema = z.strictObject({ id: z.string().min(1), sha256: z.base64().length(44) });
-
 const ResultBodySchema = z.strictObject({
   id: z.string().min(1),
   finalUrl: z.string(),
   status: z.int().nullable(),
   hasPasswordField: z.boolean(),
   text: z.string(),
+  /** The printed page, base64. Missing when the page does not show the receipt. */
+  pdf: z
+    .base64()
+    .min(1)
+    .transform((pdf) => new Uint8Array(Buffer.from(pdf, "base64")))
+    .nullable()
+    .default(null),
 });
 
 function parseJson(text: string): unknown {
@@ -92,18 +96,11 @@ export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<F
       if (route === "GET /proofs/pending") {
         return json(200, { sites: await deps.proofs.pending() });
       }
-      if (route === "POST /proofs/upload") {
-        const request = UploadBodySchema.safeParse(body(event));
-        if (!request.success) {
-          return json(400, { error: `The body must be {"id": string, "sha256": base64}. ${z.prettifyError(request.error)}` });
-        }
-        return json(200, await deps.proofs.upload(request.data.id, request.data.sha256));
-      }
       if (route === "POST /proofs/result") {
         const request = ResultBodySchema.safeParse(body(event));
         if (!request.success) {
           return json(400, {
-            error: `The body must be {"id", "finalUrl", "status", "hasPasswordField", "text"}. ${z.prettifyError(request.error)}`,
+            error: `The body must be {"id", "finalUrl", "status", "hasPasswordField", "text", "pdf"?}. ${z.prettifyError(request.error)}`,
           });
         }
         return json(200, await deps.proofs.result(request.data));

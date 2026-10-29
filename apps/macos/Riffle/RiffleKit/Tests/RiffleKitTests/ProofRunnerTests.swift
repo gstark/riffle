@@ -17,27 +17,39 @@ import Testing
 
         let outcome = await runner(service, loader).run(receipts) { progress.append($0) }
 
-        #expect(outcome == .done(made: 3, skipped: 0))
+        #expect(outcome == .done(made: 3, wrong: 0, skipped: 0))
         #expect(progress == [1, 2, 3])
         #expect(loader.loaded == receipts.map(\.printUrl))
         #expect(loader.printed == 3)
-        #expect(await service.calls == [
-            .ticket("a:0"), .upload("a:0"), .record("a:0"),
-            .ticket("b:0"), .upload("b:0"), .record("b:0"),
-            .ticket("c:0"), .upload("c:0"), .record("c:0"),
-        ])
+        #expect(await service.calls == [.record("a:0"), .record("b:0"), .record("c:0")])
     }
 
     @Test func sendsWhatThePageShowed() async throws {
         let service = FakeProofsService()
         let receipt = receipts[0]
-        let page = LoadedPage(finalUrl: URL(string: "https://riders.uber.com/trips/a")!, status: nil, hasPasswordField: false, text: "Total")
+        let page = LoadedPage(finalUrl: URL(string: "https://riders.uber.com/trips/a")!, status: nil, hasPasswordField: false, text: "Total $23.45")
 
         _ = await runner(service, FakePageLoader(pages: [receipt.printUrl: page])).run([receipt])
 
         #expect(await service.results == [
-            PageResult(id: "a:0", finalUrl: "https://riders.uber.com/trips/a", status: nil, hasPasswordField: false, text: "Total"),
+            PageResult(
+                id: "a:0", finalUrl: "https://riders.uber.com/trips/a", status: nil, hasPasswordField: false, text: "Total $23.45",
+                pdf: Data("%PDF-1.4".utf8)
+            ),
         ])
+    }
+
+    @Test func doesNotPrintAPageWithoutTheReceipt() async {
+        let service = FakeProofsService(fidelity: "wrong_page")
+        let receipt = receipts[0]
+        let page = LoadedPage(finalUrl: receipt.printUrl, status: 200, hasPasswordField: false, text: "Billing and payments")
+        let loader = FakePageLoader(pages: [receipt.printUrl: page])
+
+        let outcome = await runner(service, loader).run([receipt])
+
+        #expect(outcome == .done(made: 0, wrong: 1, skipped: 0))
+        #expect(loader.printed == 0)
+        #expect(await service.results.map(\.pdf) == [nil])
     }
 
     @Test func stopsAtASignInPageBeforeItPrints() async {
@@ -59,17 +71,33 @@ import Testing
         let outcome = await runner(service, FakePageLoader(pages: receiptPages(receipts))).run(receipts)
 
         #expect(outcome == .needsSignIn)
-        #expect(await service.calls.count == 3)
+        #expect(await service.calls.count == 1)
+    }
+
+    @Test func countsPagesThatAreNotReceipts() async {
+        let service = FakeProofsService(fidelity: "wrong_page")
+
+        let outcome = await runner(service, FakePageLoader(pages: receiptPages(receipts))).run(receipts)
+
+        #expect(outcome == .done(made: 0, wrong: 3, skipped: 0))
+    }
+
+    @Test func leavesAnErrorPagePending() async {
+        let service = FakeProofsService(fidelity: "link_failed")
+
+        let outcome = await runner(service, FakePageLoader(pages: receiptPages(receipts))).run(receipts)
+
+        #expect(outcome == .done(made: 0, wrong: 0, skipped: 3))
     }
 
     @Test func skipsAFailedReceiptAndGoesOn() async {
-        let service = FakeProofsService(failingUploads: ["b:0"])
+        let service = FakeProofsService(failingRecords: ["b:0"])
         var pages = receiptPages(receipts)
         pages[receipts[0].printUrl] = nil
 
         let outcome = await runner(service, FakePageLoader(pages: pages)).run(receipts)
 
-        #expect(outcome == .done(made: 1, skipped: 2))
+        #expect(outcome == .done(made: 1, wrong: 0, skipped: 2))
         #expect(await service.calls.last == .record("c:0"))
     }
 
@@ -110,7 +138,5 @@ private actor WaitLog {
 
 private struct UnauthorizedService: ProofsService {
     func pending() async throws -> [PendingSite] { throw SearchError.unauthorized }
-    func uploadTicket(id: String, sha256: String) async throws -> UploadTicket { throw SearchError.unauthorized }
-    func upload(_ pdf: Data, to ticket: UploadTicket, sha256: String) async throws { throw SearchError.unauthorized }
     func record(_ result: PageResult) async throws -> ProofFidelity { throw SearchError.unauthorized }
 }
