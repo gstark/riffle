@@ -58,6 +58,7 @@ import Testing
         await model.makePDFs(site: "uber.com")
 
         #expect(model.status(of: "uber.com") == .done(made: 1, wrong: 0, skipped: 0))
+        #expect(model.results["u:0"] == .stored)
         #expect(!model.isRunning)
         #expect(defaults.stringArray(forKey: "signedInSites") == ["uber.com"])
     }

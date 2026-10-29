@@ -42,6 +42,18 @@ public enum SiteOutcome: Equatable, Sendable {
     case cancelled
 }
 
+/// What happened to one receipt of a run.
+public enum ReceiptResult: Equatable, Sendable {
+    /// The server stored the PDF.
+    case stored
+    /// The page does not show the total or the order ID. No PDF is kept.
+    case wrongPage
+    /// The page asked for a sign-in, or the site showed a robot check.
+    case needsSignIn
+    /// A step failed, or the link gave an error page. The receipt stays pending.
+    case failed(String)
+}
+
 @MainActor
 public final class ProofRunner {
     /// The run stops after this many failures in sequence.
@@ -67,8 +79,8 @@ public final class ProofRunner {
         self.sleep = sleep
     }
 
-    /// Makes the PDFs of `receipts`, in order. `progress` gets the number of receipts that are finished.
-    public func run(_ receipts: [PendingReceipt], progress: (Int) -> Void = { _ in }) async -> SiteOutcome {
+    /// Makes the PDFs of `receipts`, in order. `report` gets the ID and the result of each receipt when it is finished.
+    public func run(_ receipts: [PendingReceipt], report: (String, ReceiptResult) -> Void = { _, _ in }) async -> SiteOutcome {
         var made = 0
         var wrong = 0
         var skipped = 0
@@ -79,9 +91,21 @@ public final class ProofRunner {
             }
             do {
                 let result = try await makeProof(receipt)
-                if result.needsSignIn { return .needsSignIn }
+                if result.needsSignIn {
+                    report(receipt.id, .needsSignIn)
+                    return .needsSignIn
+                }
                 // An error page (link_failed) stays pending, as a failed step does.
-                if result.isKept { made += 1 } else if result.isWrongPage { wrong += 1 } else { skipped += 1 }
+                if result.isKept {
+                    made += 1
+                    report(receipt.id, .stored)
+                } else if result.isWrongPage {
+                    wrong += 1
+                    report(receipt.id, .wrongPage)
+                } else {
+                    skipped += 1
+                    report(receipt.id, .failed("The link gave an error page."))
+                }
                 failures = 0
             } catch is CancellationError {
                 return .cancelled
@@ -90,9 +114,9 @@ public final class ProofRunner {
             } catch {
                 skipped += 1
                 failures += 1
+                report(receipt.id, .failed(Self.message(error)))
                 if failures >= Self.maxFailures { return .failed(Self.message(error)) }
             }
-            progress(index + 1)
         }
         return .done(made: made, wrong: wrong, skipped: skipped)
     }

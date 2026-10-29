@@ -56,6 +56,8 @@ public final class ProofsModel {
     public private(set) var sites: [PendingSite] = []
     public private(set) var load: LoadState = .notLoaded
     private var statuses: [String: SiteStatus] = [:]
+    /// The result of each receipt in the last run of its site, by receipt ID.
+    public private(set) var results: [String: ReceiptResult] = [:]
     /// The site that Riffle works on now. Riffle works on one site at a time.
     public private(set) var runningSite: String?
     /// The sites that wait for the running site, in order.
@@ -179,9 +181,15 @@ public final class ProofsModel {
         let total = site.receipts.count
         runningSite = site.site
         statuses[site.site] = .working(done: 0, total: total)
+        for receipt in site.receipts { results[receipt.id] = nil }
         let runner = makeRunner(service)
         let task = Task { [weak self] in
-            await runner.run(site.receipts) { done in self?.statuses[site.site] = .working(done: done, total: total) }
+            var done = 0
+            return await runner.run(site.receipts) { id, result in
+                done += 1
+                self?.results[id] = result
+                self?.statuses[site.site] = .working(done: done, total: total)
+            }
         }
         self.task = task
         let outcome = await task.value

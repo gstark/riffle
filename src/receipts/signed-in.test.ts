@@ -79,20 +79,26 @@ describe("printUrl", () => {
 });
 
 describe("sharedLinks", () => {
-  it("finds the links of two or more messages", () => {
+  it("finds the links of two or more orders", () => {
     const links = sharedLinks([
-      { messageId: "a", url: "https://myftr.page.link/ManageBilling" },
-      { messageId: "b", url: "https://myftr.page.link/ManageBilling" },
-      { messageId: "c", url: "https://click.uber.com/receipt/c" },
-      { messageId: "d", url: null },
-      { messageId: "e", url: null },
+      { messageId: "a", url: "https://myftr.page.link/ManageBilling", orderId: "p257HGTNSH" },
+      { messageId: "b", url: "https://myftr.page.link/ManageBilling", orderId: "p257GTHR5Z" },
+      { messageId: "c", url: "https://click.uber.com/receipt/c", orderId: null },
+      { messageId: "d", url: null, orderId: null },
+      { messageId: "e", url: null, orderId: null },
     ]);
     expect([...links]).toEqual(["https://myftr.page.link/ManageBilling"]);
   });
 
-  it("counts one message with two receipts once", () => {
+  it("counts receipts without order IDs by message", () => {
     const url = "https://www.amazon.com/your-orders";
-    expect(sharedLinks([{ messageId: "a", url }, { messageId: "a", url }]).size).toBe(0);
+    expect(sharedLinks([{ messageId: "a", url, orderId: null }, { messageId: "a", url, orderId: null }]).size).toBe(0);
+    expect(sharedLinks([{ messageId: "a", url, orderId: null }, { messageId: "b", url, orderId: null }]).size).toBe(1);
+  });
+
+  it("does not count a forwarded email of the same order", () => {
+    const url = "https://res-marriott.com/H/2/abc";
+    expect(sharedLinks([{ messageId: "a", url, orderId: "82504299" }, { messageId: "fwd", url, orderId: "82504299" }]).size).toBe(0);
   });
 });
 

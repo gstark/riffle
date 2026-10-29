@@ -102,15 +102,16 @@ function host(url: string | null): string | null {
 }
 
 /**
- * The links that the emails of two or more messages have, for example a "manage billing" link in each monthly email.
- * `proofs` are the receipt links of all receipts.
+ * Links that go to no single receipt: the emails of two or more different orders have them, for example a billing
+ * page in each monthly bill. A receipt without an order ID counts as its own order. A forwarded email has the same
+ * order as the original, so it does not make the link shared.
  */
-export function sharedLinks(proofs: { messageId: string; url: string | null }[]): Set<string> {
-  const messages = new Map<string, Set<string>>();
-  for (const { messageId, url } of proofs) {
-    if (url) messages.set(url, (messages.get(url) ?? new Set()).add(messageId));
+export function sharedLinks(proofs: { messageId: string; url: string | null; orderId: string | null }[]): Set<string> {
+  const orders = new Map<string, Set<string>>();
+  for (const { messageId, url, orderId } of proofs) {
+    if (url) orders.set(url, (orders.get(url) ?? new Set()).add(orderId ?? `message:${messageId}`));
   }
-  return new Set([...messages].filter(([, ids]) => ids.size >= 2).map(([url]) => url));
+  return new Set([...orders].filter(([, keys]) => keys.size >= 2).map(([url]) => url));
 }
 
 /** The site of the session that the receipt needs, for example "amazon.com". Null when the receipt has no link. */

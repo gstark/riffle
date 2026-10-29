@@ -163,7 +163,7 @@ private struct SiteDetail: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 List(Array(site.receipts.enumerated()), id: \.element.id) { index, receipt in
-                    ReceiptRow(receipt: receipt, phase: rowPhase(index)) { browser.open(receipt.signInUrl) }
+                    ReceiptRow(receipt: receipt, phase: rowPhase(index), result: model.results[receipt.id]) { browser.open(receipt.signInUrl) }
                 }
                 .frame(height: 170)
                 // Follow the receipt that Riffle prints now.
@@ -217,29 +217,41 @@ private struct SiteDetail: View {
     private func rowPhase(_ index: Int) -> ReceiptRow.Phase {
         if model.status(of: site.site) == .queued { return .queued }
         guard let finished else { return .idle }
-        return index < finished ? .finished : index == finished ? .printing : .queued
+        return index < finished ? .idle : index == finished ? .printing : .queued
     }
 }
 
 private struct ReceiptRow: View {
-    /// `idle`: the receipt is not in a run. `queued`: the run prints it later.
-    enum Phase { case idle, queued, printing, finished }
+    /// `idle`: the receipt is not in a run, or the run finished it. `queued`: the run prints it later.
+    enum Phase { case idle, queued, printing }
 
     let receipt: PendingReceipt
     let phase: Phase
+    /// The result of the last run, nil before a run.
+    let result: ReceiptResult?
     let open: () -> Void
+
+    /// The receipt needs no more work.
+    private var isFinished: Bool { result == .stored || result == .wrongPage }
 
     var body: some View {
         Button(action: open) {
             HStack {
-                // The receipt that Riffle prints now, or a clock when it is in the queue.
+                // The receipt that Riffle prints now, a clock when it is in the queue, or the result of the run.
                 ZStack {
-                    switch phase {
-                    case .printing: ProgressView().controlSize(.mini)
-                    case .queued: Image(systemName: "clock").font(.caption).foregroundStyle(.secondary).help("In the queue")
-                    case .idle, .finished: EmptyView()
+                    switch (phase, result) {
+                    case (.printing, _): ProgressView().controlSize(.mini)
+                    case (.queued, _): Image(systemName: "clock").foregroundStyle(.secondary).help("In the queue")
+                    case (.idle, .stored): Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Riffle stored the PDF")
+                    case (.idle, .wrongPage):
+                        Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+                            .help("The page does not show the total or the order ID. Riffle kept no PDF.")
+                    case (.idle, .needsSignIn): Image(systemName: "lock.fill").foregroundStyle(.orange).help("The page asked for a sign-in")
+                    case (.idle, .failed(let message)): Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(message)
+                    case (.idle, nil): EmptyView()
                     }
                 }
+                .font(.caption)
                 .frame(width: 14)
                 Text(receipt.date, format: .dateTime.year().month(.abbreviated).day())
                     .monospacedDigit()
@@ -250,7 +262,7 @@ private struct ReceiptRow: View {
                 if let amount = receipt.amount { Text(amount).monospacedDigit() }
             }
             .fontWeight(phase == .printing ? .semibold : .regular)
-            .opacity(phase == .finished ? 0.4 : 1)
+            .opacity(isFinished ? 0.4 : 1)
             .animation(.easeOut(duration: 0.3), value: phase)
             .contentShape(Rectangle())
         }

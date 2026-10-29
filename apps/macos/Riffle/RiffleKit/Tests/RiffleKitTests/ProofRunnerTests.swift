@@ -13,12 +13,14 @@ import Testing
     @Test func makesEachProofInOrder() async {
         let service = FakeProofsService()
         let loader = FakePageLoader(pages: receiptPages(receipts))
-        var progress: [Int] = []
+        var reports: [String] = []
 
-        let outcome = await runner(service, loader).run(receipts) { progress.append($0) }
+        let outcome = await runner(service, loader).run(receipts) { id, result in
+            if result == .stored { reports.append(id) }
+        }
 
         #expect(outcome == .done(made: 3, wrong: 0, skipped: 0))
-        #expect(progress == [1, 2, 3])
+        #expect(reports == ["a:0", "b:0", "c:0"])
         #expect(loader.loaded == receipts.map(\.printUrl))
         #expect(loader.printed == 3)
         #expect(await service.calls == [.record("a:0"), .record("b:0"), .record("c:0")])
@@ -116,6 +118,30 @@ import Testing
 
         #expect(await ProofRunner(service: UnauthorizedService(), loader: loader, sleep: { _ in }).run(receipts) == .unauthorized)
         #expect(loader.loaded.count == 1)
+    }
+
+    @Test func reportsTheResultOfEachReceipt() async {
+        let service = FakeProofsService(failingRecords: ["b:0"])
+        var pages = receiptPages(receipts)
+        pages[receipts[2].printUrl] = .signIn
+        var reports: [String: ReceiptResult] = [:]
+
+        _ = await runner(service, FakePageLoader(pages: pages)).run(receipts) { reports[$0] = $1 }
+
+        #expect(reports["a:0"] == .stored)
+        #expect(reports["b:0"] == .failed("The search service failed."))
+        #expect(reports["c:0"] == .needsSignIn)
+    }
+
+    @Test(arguments: [("wrong_page", ReceiptResult.wrongPage), ("link_failed", .failed("The link gave an error page."))])
+    func reportsWhatTheServerSaw(fidelity: String, expected: ReceiptResult) async {
+        var reports: [ReceiptResult] = []
+
+        _ = await runner(FakeProofsService(fidelity: fidelity), FakePageLoader(pages: receiptPages(receipts))).run([receipts[0]]) {
+            reports.append($1)
+        }
+
+        #expect(reports == [expected])
     }
 
     @Test func waitsBetweenPages() async {

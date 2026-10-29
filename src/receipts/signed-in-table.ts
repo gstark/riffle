@@ -61,6 +61,22 @@ type Row = Record<string, unknown>;
 const textOrNull = (value: unknown) => (value === null || value === undefined ? null : String(value));
 const numberOrNull = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 
+/** The shared links of `proofs`. Only receipts with a link that more than one email has need their order IDs. */
+async function findSharedLinks(receipts: lancedb.Table, proofs: Row[]): Promise<Set<string>> {
+  const links = proofs.map((row) => ({ id: String(row.id), messageId: String(row.messageId), url: textOrNull(row.url) }));
+  const repeated = sharedLinks(links.map((link) => ({ ...link, orderId: null })));
+  const ids = links.filter((link) => link.url && repeated.has(link.url)).map((link) => link.id);
+  if (ids.length === 0) return repeated;
+
+  const rows: Row[] = await receipts
+    .query()
+    .where(`id IN (${ids.map(sqlString).join(", ")})`)
+    .select(["id", "orderId"])
+    .toArray();
+  const orderIds = new Map(rows.map((row) => [String(row.id), textOrNull(row.orderId)]));
+  return sharedLinks(links.map((link) => ({ ...link, orderId: orderIds.get(link.id) ?? null })));
+}
+
 /**
  * Receipts with a `login_required` or `blocked` proof. With `id`, only that receipt, also when it has a signed-in
  * row. Without `id`, all receipts without a signed-in row. `sharedLink` compares the links of all receipts.
@@ -68,7 +84,7 @@ const numberOrNull = (value: unknown) => (value === null || value === undefined 
 export async function readCandidates(tables: CandidateTables, id?: string): Promise<Candidate[]> {
   // The links of all receipts, to find the links that more than one email has.
   const allProofs: Row[] = await tables.proofs.query().select(["id", "messageId", "url", "finalUrl", "fidelity"]).toArray();
-  const shared = sharedLinks(allProofs.map((row) => ({ messageId: String(row.messageId), url: textOrNull(row.url) })));
+  const shared = await findSharedLinks(tables.receipts, allProofs);
   const proofRows = allProofs.filter(
     (row) => PENDING_FIDELITIES.includes(row.fidelity as Fidelity) && (id === undefined || row.id === id),
   );

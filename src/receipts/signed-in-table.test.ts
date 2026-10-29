@@ -49,13 +49,16 @@ const signedIn = (messageId: string): SignedInRow => ({
   checkedAt: now,
 });
 
+const order = (id: string, orderId: string) =>
+  modelRows(meta(id), { from: "x", subject: `Order ${id}`, text: "z" }, extraction(receiptOutput({ orderId })), "m", now);
+
 async function setup() {
   const ids = ["login", "blocked", "done", "page"];
   const receipts = await openOrCreateReceipts(dir);
   await replaceReceipts(
     receipts,
     ids,
-    ids.flatMap((id) => modelRows(meta(id), { from: "x", subject: `Order ${id}`, text: "z" }, extraction(receiptOutput()), "m", now)),
+    ids.flatMap((id) => order(id, `order-${id}`)),
   );
   const proofs = await openOrCreateProofs(dir);
   await replaceProofs(proofs, ids, [
@@ -78,7 +81,7 @@ describe("signed-in proofs table", () => {
       messageId: "login",
       subject: "Order login",
       merchant: "Amazon",
-      orderId: "112-1234567-1234567",
+      orderId: "order-login",
       total: 2345,
       currency: "USD",
       url: "https://example.com/login",
@@ -102,6 +105,15 @@ describe("signed-in proofs table", () => {
     const candidates = await readCandidates(tables);
     expect(candidates.find((c) => c.id === "login:0")?.sharedLink).toBe(true);
     expect(candidates.find((c) => c.id === "blocked:0")?.sharedLink).toBe(false);
+  });
+
+  it("does not mark a link that a forwarded email of the same order also has", async () => {
+    const tables = await setup();
+    await replaceReceipts(tables.receipts, ["page"], order("page", "order-login"));
+    await replaceProofs(tables.proofs, ["page"], [{ ...proof("page", "merchant_page"), url: "https://example.com/login" }]);
+
+    const candidates = await readCandidates(tables);
+    expect(candidates.find((c) => c.id === "login:0")?.sharedLink).toBe(false);
   });
 
   it("writes a wrong page without a PDF", async () => {
