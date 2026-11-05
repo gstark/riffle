@@ -50,10 +50,10 @@ struct ReceiptsView: View {
     var body: some View {
         NavigationSplitView {
             ReceiptsSidebar(model: model, mode: $sidebar)
-                .navigationSplitViewColumnWidth(min: 210, ideal: 250, max: 340)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
         } content: {
             ReceiptLedger(model: model)
-                .navigationSplitViewColumnWidth(min: 440, ideal: 540)
+                .navigationSplitViewColumnWidth(min: 500, ideal: 600)
         } detail: {
             if let receipt = model.selected {
                 ReceiptDetail(model: model, receipt: receipt, pdfs: pdfs)
@@ -77,6 +77,8 @@ struct ReceiptsView: View {
                     .help("Save the receipts in the list as a CSV file")
             }
         }
+        .font(Theme.receiptBodyFont)
+        .controlSize(.large)
         .tint(Theme.ink)
     }
 

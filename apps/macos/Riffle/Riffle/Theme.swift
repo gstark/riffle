@@ -50,13 +50,16 @@ enum Theme {
 
     // MARK: Receipts window
 
-    static let receiptsWindowSize = NSSize(width: 1280, height: 820)
+    static let receiptsWindowSize = NSSize(width: 1440, height: 900)
+    static let receiptBodyFont = Font.system(size: 17)
+    static let receiptHeadingFont = Font.system(size: 22, weight: .semibold)
+    static let receiptLabelFont = Font.system(size: 17, weight: .semibold)
     static let receiptSearchFont = Font.system(size: 20)
     static let receiptSearchIconSize: CGFloat = 17
     /// New York, as the filter sentence of the panel, at a size for a window column.
-    static let receiptSentenceFont = Font.system(size: 17, design: .serif)
-    /// 17 pt at line height 1.65.
-    static let receiptSentenceLineHeight: CGFloat = 28
+    static let receiptSentenceFont = Font.system(size: 19, design: .serif)
+    /// 19 pt with room for filter token underlines.
+    static let receiptSentenceLineHeight: CGFloat = 32
     static let receiptAmountFont = Font.system(size: 30, weight: .semibold).monospacedDigit()
     static let receiptColumnMargin: CGFloat = 20
 

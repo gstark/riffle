@@ -17,7 +17,7 @@ struct ReceiptLedger: View {
                 .padding(.horizontal, Theme.receiptColumnMargin)
                 .padding(.bottom, 10)
             Text(summary)
-                .font(.callout)
+                .font(Theme.receiptBodyFont)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .padding(.horizontal, Theme.receiptColumnMargin)
@@ -128,6 +128,7 @@ struct ReceiptLedger: View {
                         Text(month.net.map(\.text).joined(separator: " "))
                             .monospacedDigit()
                     }
+                    .font(Theme.receiptLabelFont)
                 }
             }
         }
@@ -169,7 +170,7 @@ struct ReceiptLedgerRow: View {
             Text(dayText)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
+                .frame(width: 66, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(receipt.merchant ?? "Unknown merchant")
@@ -177,12 +178,12 @@ struct ReceiptLedgerRow: View {
                         .lineLimit(1)
                     if receipt.kind != .order {
                         Text(receipt.kind.singular.lowercased())
-                            .font(.caption)
+                            .font(Theme.receiptBodyFont)
                             .foregroundStyle(.secondary)
                     }
                 }
                 Text(receipt.subject.isEmpty ? "(no subject)" : receipt.subject)
-                    .font(.callout)
+                    .font(Theme.receiptBodyFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -193,7 +194,8 @@ struct ReceiptLedgerRow: View {
                     .fontWeight(receipt.kind == .refund ? .regular : .medium)
             }
         }
-        .padding(.vertical, 3)
+        .font(Theme.receiptBodyFont)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
     }
 

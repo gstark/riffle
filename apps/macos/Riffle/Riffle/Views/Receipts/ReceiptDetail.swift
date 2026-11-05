@@ -24,7 +24,9 @@ struct ReceiptDetail: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 220)
+            .frame(width: 260)
+            .font(Theme.receiptBodyFont)
+            .controlSize(.large)
             .padding(.bottom, 14)
             Divider()
             switch tab {
@@ -42,12 +44,12 @@ struct ReceiptDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Text(receipt.merchant ?? "Unknown merchant")
-                    .font(.title2.weight(.semibold))
+                    .font(Theme.receiptHeadingFont)
                     .lineLimit(2)
                 Spacer(minLength: 0)
                 if !receipt.items.isEmpty {
                     Text(receipt.items.map(\.description).joined(separator: ", "))
-                        .font(.callout)
+                        .font(Theme.receiptBodyFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .help(receipt.items.map(\.description).joined(separator: ", "))
@@ -69,7 +71,7 @@ struct ReceiptDetail: View {
                         .textSelection(.enabled)
                 }
             }
-            .font(.callout)
+            .font(Theme.receiptBodyFont)
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -105,10 +107,10 @@ struct ReceiptDetail: View {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(receipt.subject.isEmpty ? "(no subject)" : receipt.subject)
-                            .font(.headline)
+                            .font(Theme.receiptLabelFont)
                             .textSelection(.enabled)
                         Text("Received \(receipt.date.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.callout)
+                            .font(Theme.receiptBodyFont)
                             .foregroundStyle(.secondary)
                     }
                     HStack(spacing: 8) {
@@ -145,7 +147,7 @@ struct ReceiptDetail: View {
         if !others.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(others.count == 1 ? "1 related receipt" : "\(others.count) related receipts")
-                    .font(.callout)
+                    .font(Theme.receiptBodyFont)
                     .foregroundStyle(.secondary)
                 ForEach(others) { other in
                     Button {
@@ -154,7 +156,7 @@ struct ReceiptDetail: View {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(other.messageId == receipt.messageId ? "Same email" : other.kind.singular)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 110, alignment: .leading)
+                                .frame(width: 140, alignment: .leading)
                             Text(other.subject)
                                 .lineLimit(1)
                             Spacer()
@@ -164,10 +166,10 @@ struct ReceiptDetail: View {
                             if let total = other.signedTotal {
                                 Text(Money.format(total, currency: other.currency))
                                     .monospacedDigit()
-                                    .frame(width: 90, alignment: .trailing)
+                                    .frame(width: 115, alignment: .trailing)
                             }
                         }
-                        .font(.callout)
+                        .font(Theme.receiptBodyFont)
                         .padding(.vertical, 4)
                         .contentShape(Rectangle())
                     }

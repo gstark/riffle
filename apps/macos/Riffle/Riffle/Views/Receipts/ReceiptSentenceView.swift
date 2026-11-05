@@ -130,31 +130,32 @@ private struct AmountEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Amount")
-                .font(.headline)
+                .font(Theme.receiptLabelFont)
             HStack(spacing: 8) {
                 TextField("Lowest", text: $lowest)
-                    .frame(width: 96)
+                    .frame(width: 120)
                 Text("to")
                     .foregroundStyle(.secondary)
                 TextField("Highest", text: $highest)
-                    .frame(width: 96)
+                    .frame(width: 120)
                 Button("Apply", action: apply)
                     .keyboardShortcut(.defaultAction)
             }
             .textFieldStyle(.roundedBorder)
             .onSubmit(apply)
             Text("In dollars. Leave an end empty for no limit. One amount in both fields finds that exact amount.")
-                .font(.caption)
+                .font(Theme.receiptBodyFont)
                 .foregroundStyle(.secondary)
-                .frame(width: 300, alignment: .leading)
+                .frame(width: 420, alignment: .leading)
             HStack(spacing: 8) {
                 presetButton("Under $20", AmountRange(min: nil, max: 2000))
                 presetButton("$20 to $100", AmountRange(min: 2000, max: 10_000))
                 presetButton("Over $100", AmountRange(min: 10_000, max: nil))
                 presetButton("Any amount", nil)
             }
-            .controlSize(.small)
+            .controlSize(.large)
         }
+        .font(Theme.receiptBodyFont)
         .padding(16)
         .onAppear {
             lowest = model.filters.amount?.min.map { Money.plain($0, currency: "USD") } ?? ""

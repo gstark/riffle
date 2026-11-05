@@ -23,6 +23,8 @@ struct ReceiptsSidebar: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .font(Theme.receiptBodyFont)
+            .controlSize(.large)
             .padding(.horizontal, 12)
             .padding(.top, 10)
             .padding(.bottom, 6)
@@ -35,6 +37,7 @@ struct ReceiptsSidebar: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                .font(Theme.receiptBodyFont)
                 .tag(Self.all)
                 ForEach(groups) { group in
                     GroupRow(group: group).tag(group.id)
@@ -82,11 +85,12 @@ private struct GroupRow: View {
                 Text(group.net.map(\.text).joined(separator: " "))
                     .monospacedDigit()
                 Text(group.count == 1 ? "1 receipt" : "\(group.count) receipts")
-                    .font(.caption)
+                    .font(Theme.receiptBodyFont)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 1)
+        .font(Theme.receiptBodyFont)
+        .padding(.vertical, 5)
         .accessibilityElement(children: .combine)
     }
 }
