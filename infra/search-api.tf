@@ -72,6 +72,13 @@ resource "aws_iam_role_policy" "search" {
         Resource = "${aws_s3_bucket.archive.arn}/proofs/*"
       },
       {
+        # The Receipts window of the Riffle app opens these PDFs with presigned links.
+        Sid      = "ReadReceiptPdfs"
+        Effect   = "Allow"
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.archive.arn}/proofs/*"
+      },
+      {
         Sid      = "UseArchiveKey"
         Effect   = "Allow"
         Action   = ["kms:Decrypt", "kms:GenerateDataKey"]

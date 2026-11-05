@@ -41,6 +41,8 @@ targets:
         com.apple.security.network.client: true
         # The proof runner prints receipt pages to PDF files.
         com.apple.security.print: true
+        # The Receipts window exports a CSV file with a save panel.
+        com.apple.security.files.user-selected.read-write: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gstark.riffle

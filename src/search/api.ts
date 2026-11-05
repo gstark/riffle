@@ -1,6 +1,7 @@
 // HTTP routes of the search Function URL.
 
 import { z } from "zod";
+import type { Receipts } from "../receipts/browse.ts";
 import type { SignedInProofs } from "../receipts/signed-in.ts";
 import { isAuthorized } from "./auth.ts";
 import { BadRequestError, SearchBodySchema, type SearchInput } from "./request.ts";
@@ -33,6 +34,8 @@ export interface ApiDeps {
   health: () => Promise<Date | null>;
   /** Routes under /proofs, for the proofs that the Riffle app makes with a sign-in. */
   proofs: SignedInProofs;
+  /** Routes under /receipts, for the Receipts window of the Riffle app. */
+  receipts: Pick<Receipts, "list" | "pdfUrl">;
   log: (message: string) => void;
 }
 
@@ -41,6 +44,8 @@ const json = (statusCode: number, value: unknown): FunctionUrlResult => ({
   headers: { "content-type": "application/json" },
   body: JSON.stringify(value),
 });
+
+const PdfBodySchema = z.strictObject({ id: z.string().min(1), which: z.enum(["best", "email"]).default("best") });
 
 const ResultBodySchema = z.strictObject({
   id: z.string().min(1),
@@ -68,6 +73,16 @@ function parseJson(text: string): unknown {
 /** The JSON body of the request, or undefined when it is not JSON. */
 function body(event: FunctionUrlEvent): unknown {
   return parseJson(event.isBase64Encoded ? Buffer.from(event.body ?? "", "base64").toString() : (event.body ?? ""));
+}
+
+/** The host and the path of a page. The query can contain a token, so the log does not get it. */
+function address(url: string): string {
+  try {
+    const { host, pathname } = new URL(url);
+    return host + pathname;
+  } catch {
+    return "an address that is not valid";
+  }
 }
 
 export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<FunctionUrlResult> {
@@ -103,11 +118,31 @@ export function createApi(deps: ApiDeps): (event: FunctionUrlEvent) => Promise<F
             error: `The body must be {"id", "finalUrl", "status", "hasPasswordField", "text", "pdf"?}. ${z.prettifyError(request.error)}`,
           });
         }
-        return json(200, await deps.proofs.result(request.data));
+        const page = request.data;
+        const result = await deps.proofs.result(page);
+        const pdf = page.pdf ? `a PDF of ${page.pdf.length} bytes` : "no PDF";
+        deps.log(
+          `Proof result ${page.id}: ${result.fidelity} at ${address(page.finalUrl)}, HTTP ${page.status ?? "unknown"}, ` +
+            `password field ${page.hasPasswordField}, ${page.text.length} characters of text, ${pdf}`,
+        );
+        return json(200, result);
+      }
+      if (route === "GET /receipts") {
+        return json(200, { receipts: await deps.receipts.list() });
+      }
+      if (route === "POST /receipts/pdf") {
+        const request = PdfBodySchema.safeParse(body(event));
+        if (!request.success) {
+          return json(400, { error: `The body must be {"id": string, "which"?: "best" | "email"}. ${z.prettifyError(request.error)}` });
+        }
+        return json(200, { url: await deps.receipts.pdfUrl(request.data.id, request.data.which) });
       }
       return json(404, { error: "Not found" });
     } catch (error) {
-      if (error instanceof BadRequestError) return json(400, { error: error.message });
+      if (error instanceof BadRequestError) {
+        deps.log(`Request rejected: ${route}: ${error.message}`);
+        return json(400, { error: error.message });
+      }
       deps.log(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
       return json(500, { error: "Internal error" });
     }

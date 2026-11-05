@@ -2,6 +2,7 @@
 // print a page that shows it, and send the result.
 
 import Foundation
+import os
 
 /// What the browser saw after it loaded a page.
 public struct LoadedPage: Equatable, Sendable {
@@ -43,16 +44,32 @@ public enum SiteOutcome: Equatable, Sendable {
     case cancelled
 }
 
-/// What happened to one receipt of a run.
+/// What happened to one receipt of a run. Each result without a PDF tells why, with the address of the page.
 public enum ReceiptResult: Equatable, Sendable {
     /// The server stored the PDF.
     case stored
     /// The page does not show the total or the order ID. No PDF is kept.
-    case wrongPage
+    case wrongPage(String)
     /// The page asked for a sign-in, or the site showed a robot check.
-    case needsSignIn
+    case needsSignIn(String)
     /// A step failed, or the link gave an error page. The receipt stays pending.
     case failed(String)
+
+    /// Why Riffle has no PDF of the receipt. Nil when the server stored the PDF.
+    public var message: String? {
+        switch self {
+        case .stored: nil
+        case .wrongPage(let message), .needsSignIn(let message), .failed(let message): message
+        }
+    }
+
+    /// The receipt needs no more work.
+    public var isFinished: Bool {
+        switch self {
+        case .stored, .wrongPage: true
+        case .needsSignIn, .failed: false
+        }
+    }
 }
 
 @MainActor
@@ -61,6 +78,8 @@ public final class ProofRunner {
     static let maxFailures = 3
     /// The server reads at most this much text. It needs only the total or the order ID.
     static let maxText = 200_000
+    /// Open Console.app and filter on the subsystem to see the result of each receipt.
+    private static let log = Logger(subsystem: "com.gstark.riffle", category: "proofs")
 
     private let service: any ProofsService
     private let loader: any PageLoader
@@ -93,29 +112,26 @@ public final class ProofRunner {
                 do { try await sleep(pause) } catch { return .cancelled }
             }
             do {
-                let result = try await makeProof(receipt)
+                let (page, fidelity) = try await makeProof(receipt)
+                let result = Self.result(fidelity, page: page, receipt: receipt)
+                Self.log.notice("\(receipt.id, privacy: .public) \(fidelity.fidelity, privacy: .public): \(result.message ?? "stored", privacy: .public)")
+                report(receipt.id, result)
                 failures = 0
                 // One receipt can need another sign-in, for example an AWS bill in the Amazon site. Sign-in pages
                 // in sequence show that the session ended.
-                if result.needsSignIn {
+                if case .needsSignIn = result {
                     skipped += 1
                     signIns += 1
                     signInsInSequence += 1
-                    report(receipt.id, .needsSignIn)
                     if signInsInSequence >= Self.maxFailures { return .needsSignIn }
                     continue
                 }
                 signInsInSequence = 0
                 // An error page (link_failed) stays pending, as a failed step does.
-                if result.isKept {
-                    made += 1
-                    report(receipt.id, .stored)
-                } else if result.isWrongPage {
-                    wrong += 1
-                    report(receipt.id, .wrongPage)
-                } else {
-                    skipped += 1
-                    report(receipt.id, .failed("The link gave an error page."))
+                switch result {
+                case .stored: made += 1
+                case .wrongPage: wrong += 1
+                case .needsSignIn, .failed: skipped += 1
                 }
             } catch is CancellationError {
                 return .cancelled
@@ -125,6 +141,7 @@ public final class ProofRunner {
                 skipped += 1
                 failures += 1
                 signInsInSequence = 0
+                Self.log.error("\(receipt.id, privacy: .public) failed at \(Self.address(receipt.printUrl), privacy: .public): \(String(describing: error), privacy: .public)")
                 report(receipt.id, .failed(Self.message(error)))
                 if failures >= Self.maxFailures { return .failed(Self.message(error)) }
             }
@@ -134,16 +151,16 @@ public final class ProofRunner {
         return .done(made: made, wrong: wrong, skipped: skipped)
     }
 
-    /// The fidelity that the server gave the page. Throws when a step fails.
-    private func makeProof(_ receipt: PendingReceipt) async throws -> ProofFidelity {
+    /// The loaded page, and the fidelity that the server gave it. Throws when a step fails.
+    private func makeProof(_ receipt: PendingReceipt) async throws -> (LoadedPage, ProofFidelity) {
         let page = try await loader.load(receipt.printUrl)
         if SignInCheck.isSignInPage(url: page.finalUrl, hasPasswordField: page.hasPasswordField) {
-            return ProofFidelity("login_required")
+            return (page, ProofFidelity("login_required"))
         }
 
         // A page without the total or the order ID is not printed. The server records it as a wrong page.
         let pdf = ReceiptScan.shows(receipt, in: page.text) ? try await loader.pdf() : nil
-        return try await service.record(PageResult(
+        let fidelity = try await service.record(PageResult(
             id: receipt.id,
             finalUrl: (page.finalUrl ?? receipt.printUrl).absoluteString,
             status: page.status,
@@ -151,6 +168,25 @@ public final class ProofRunner {
             text: String(page.text.prefix(Self.maxText)),
             pdf: pdf
         ))
+        return (page, fidelity)
+    }
+
+    /// The result of a page, with the reason when Riffle has no PDF.
+    static func result(_ fidelity: ProofFidelity, page: LoadedPage, receipt: PendingReceipt) -> ReceiptResult {
+        let address = address(page.finalUrl ?? receipt.printUrl)
+        if fidelity.isKept { return .stored }
+        if fidelity.isWrongPage {
+            return .wrongPage("The page at \(address) does not show the total or the order ID. Riffle kept no PDF.")
+        }
+        if fidelity.fidelity == "blocked" { return .needsSignIn("The site showed a robot check at \(address).") }
+        if fidelity.needsSignIn { return .needsSignIn("The page asked for a sign-in at \(address).") }
+        let status = page.status.map { $0 >= 400 ? " (HTTP \($0))" : "" } ?? ""
+        return .failed("The link gave an error page\(status) at \(address).")
+    }
+
+    /// The host and the path of a page. The query can contain a token, so it is not shown.
+    static func address(_ url: URL) -> String {
+        (url.host() ?? url.absoluteString) + url.path()
     }
 
     static func message(_ error: any Error) -> String {
@@ -159,8 +195,8 @@ public final class ProofRunner {
         case SearchError.network: "Riffle cannot reach the search service."
         case SearchError.timeout: "A request timed out."
         case SearchError.server: "The search service failed."
-        case let error as LocalizedError: error.errorDescription ?? "\(error)"
-        default: "\(error)"
+        case let error as LocalizedError: error.errorDescription ?? error.localizedDescription
+        default: error.localizedDescription
         }
     }
 }

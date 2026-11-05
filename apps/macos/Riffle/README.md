@@ -75,6 +75,17 @@ To start Riffle at login, add it in System Settings > General > Login Items.
 - Press ↓ to go to the results. Press Return, or click a result, to open the thread in Gmail.
 - Press Esc to close the panel.
 
+## Receipts
+
+Right-click the icon and choose **Receipts…**. The window shows the receipts that Riffle found in your mail: orders, subscription charges, and refunds. Shipping notices are hidden until you add them with the first token of the sentence.
+
+- The sidebar groups the receipts by merchant or by month. Click a group to show only its receipts. The counts and amounts follow the other filters, so a search for `40-60` shows which merchants have a charge in that range.
+- Type in the search field. Riffle reads the text on the Mac, without Claude. Examples: `amazon`, `42.17`, `$40-$60`, `over 100`, `about 42`, `march`, `q3 2025`, `last month`, `card 6534`, `refunds`, `"power bank"`. Words that are not a filter must appear in the merchant, the subject, an item, or the order ID.
+- The sentence under the field shows the filters. Click a value to change it from a menu. The amount opens a small editor. A change writes the new search text.
+- The ledger lists the receipts by month, with the net amount of each month. A refund is in parentheses.
+- The detail has two tabs. **Receipt** shows the items, the totals, and the PDF from the merchant. **Email** shows the email, a button that opens it in Gmail, the related receipts, and the PDF of the email.
+- **Export CSV** saves the receipts in the list for a spreadsheet.
+
 ## App icon
 
 `Icon/build_icon.py` draws the app icon. It writes `Icon/icon.svg` and all sizes into `Riffle/Assets.xcassets/AppIcon.appiconset`. To change the icon, edit the script and run it:

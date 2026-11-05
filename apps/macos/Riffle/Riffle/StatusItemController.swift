@@ -8,14 +8,22 @@ final class StatusItemController: NSObject {
     private let menu = NSMenu()
     private let toggle: () -> Void
     private let openSettings: () -> Void
+    private let openReceipts: () -> Void
     private let openProofs: () -> Void
 
-    init(toggle: @escaping () -> Void, openSettings: @escaping () -> Void, openProofs: @escaping () -> Void) {
+    init(
+        toggle: @escaping () -> Void, openSettings: @escaping () -> Void, openReceipts: @escaping () -> Void,
+        openProofs: @escaping () -> Void
+    ) {
         self.toggle = toggle
         self.openSettings = openSettings
+        self.openReceipts = openReceipts
         self.openProofs = openProofs
         super.init()
 
+        let receipts = NSMenuItem(title: "Receipts…", action: #selector(receiptsClicked), keyEquivalent: "")
+        receipts.target = self
+        menu.addItem(receipts)
         let proofs = NSMenuItem(title: "Receipts That Need Sign-In…", action: #selector(proofsClicked), keyEquivalent: "")
         proofs.target = self
         menu.addItem(proofs)
@@ -49,6 +57,10 @@ final class StatusItemController: NSObject {
 
     @objc private func settingsClicked() {
         openSettings()
+    }
+
+    @objc private func receiptsClicked() {
+        openReceipts()
     }
 
     @objc private func proofsClicked() {

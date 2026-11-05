@@ -35,6 +35,7 @@ const filters: Filters = {
 function setup({ fail }: { fail?: Error } = {}) {
   const searches: [SearchInput, number][] = [];
   const results: PageResult[] = [];
+  const logs: string[] = [];
   const api = createApi({
     getToken: async () => "secret",
     search: async (input, limit) => {
@@ -51,9 +52,16 @@ function setup({ fail }: { fail?: Error } = {}) {
         return { fidelity: "merchant_page" };
       },
     },
-    log: () => {},
+    receipts: {
+      list: async () => [],
+      pdfUrl: async (id, which) => {
+        if (id === "missing") throw new BadRequestError("Receipt missing has no PDF");
+        return `https://archive.example.com/${id}${which === "email" ? "-email" : ""}.pdf`;
+      },
+    },
+    log: (line) => logs.push(line),
   });
-  return { api, searches, results };
+  return { api, searches, results, logs };
 }
 
 describe("createApi", () => {
@@ -162,6 +170,39 @@ describe("createApi", () => {
     expect(JSON.parse(result.body)).toEqual({ sites: [{ site: "amazon.com", merchant: "Amazon", receipts: [] }] });
   });
 
+  it("lists the receipts", async () => {
+    const { api } = setup();
+
+    const result = await api(event("GET", "/receipts"));
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body)).toEqual({ receipts: [] });
+  });
+
+  it("gives a PDF link of a receipt", async () => {
+    const { api } = setup();
+
+    const result = await api(event("POST", "/receipts/pdf", { body: '{"id":"m1:0"}' }));
+
+    expect(JSON.parse(result.body)).toEqual({ url: "https://archive.example.com/m1:0.pdf" });
+  });
+
+  it("gives the email PDF link of a receipt", async () => {
+    const { api } = setup();
+
+    const result = await api(event("POST", "/receipts/pdf", { body: '{"id":"m1:0","which":"email"}' }));
+
+    expect(JSON.parse(result.body)).toEqual({ url: "https://archive.example.com/m1:0-email.pdf" });
+  });
+
+  it.each<[string]>([['{"id":"missing"}'], ["{}"], ['{"id":"m1:0","which":"signed"}']])("rejects the PDF request %s", async (body) => {
+    const { api } = setup();
+
+    const result = await api(event("POST", "/receipts/pdf", { body }));
+
+    expect(result.statusCode).toBe(400);
+  });
+
   it("records a page result with its PDF", async () => {
     const { api, results } = setup();
     const page = { id: "m1:0", finalUrl: "https://example.com/", status: null, hasPasswordField: false, text: "Total" };
@@ -171,6 +212,25 @@ describe("createApi", () => {
 
     expect(JSON.parse(result.body)).toEqual({ fidelity: "merchant_page" });
     expect(results).toEqual([{ ...page, pdf: new Uint8Array(Buffer.from("%PDF-1.4")) }]);
+  });
+
+  it("logs each page result without the query of the address", async () => {
+    const { api, logs } = setup();
+    const page = { id: "m1:0", finalUrl: "https://auth.rev.com/login?returnUrl=x", status: 200, hasPasswordField: true, text: "Sign in" };
+
+    await api(event("POST", "/proofs/result", { body: JSON.stringify(page) }));
+
+    expect(logs).toEqual([
+      "Proof result m1:0: merchant_page at auth.rev.com/login, HTTP 200, password field true, 7 characters of text, no PDF",
+    ]);
+  });
+
+  it("logs a rejected request", async () => {
+    const { api, logs } = setup();
+
+    await api(event("POST", "/receipts/pdf", { body: '{"id":"missing"}' }));
+
+    expect(logs).toEqual(["Request rejected: POST /receipts/pdf: Receipt missing has no PDF"]);
   });
 
   it("records a page result without a PDF", async () => {

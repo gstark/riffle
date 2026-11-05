@@ -34,9 +34,8 @@ private struct BrowserView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 }
 
-/// While the window is open, Riffle is a regular app with a Dock icon, so it is in the Command-Tab list.
-/// You can go to another app, for example to get a password, and come back. When you close the window, Riffle is
-/// a menu bar app again.
+/// While the window is open, Riffle is a regular app, so you can go to another app for a password and come back.
+/// See RegularWindows.
 @MainActor
 final class SignInWindowController: NSObject, NSWindowDelegate {
     private let window: NSWindow
@@ -61,13 +60,11 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        RegularWindows.show(window)
     }
 
     func windowWillClose(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        RegularWindows.willClose(window)
     }
 }
 
@@ -165,7 +162,7 @@ private struct SiteDetail: View {
                 List(Array(site.receipts.enumerated()), id: \.element.id) { index, receipt in
                     ReceiptRow(receipt: receipt, phase: rowPhase(index), result: model.results[receipt.id]) { browser.open(receipt.signInUrl) }
                 }
-                .frame(height: 170)
+                .frame(height: 220)
                 // Follow the receipt that Riffle prints now.
                 .onChange(of: finished) {
                     guard let finished, finished < count else { return }
@@ -232,22 +229,20 @@ private struct ReceiptRow: View {
     let open: () -> Void
 
     /// The receipt needs no more work.
-    private var isFinished: Bool { result == .stored || result == .wrongPage }
+    private var isFinished: Bool { result?.isFinished ?? false }
 
     var body: some View {
         Button(action: open) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 // The receipt that Riffle prints now, a clock when it is in the queue, or the result of the run.
                 ZStack {
                     switch (phase, result) {
                     case (.printing, _): ProgressView().controlSize(.mini)
                     case (.queued, _): Image(systemName: "clock").foregroundStyle(.secondary).help("In the queue")
                     case (.idle, .stored): Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Riffle stored the PDF")
-                    case (.idle, .wrongPage):
-                        Image(systemName: "xmark.circle").foregroundStyle(.secondary)
-                            .help("The page does not show the total or the order ID. Riffle kept no PDF.")
-                    case (.idle, .needsSignIn): Image(systemName: "lock.fill").foregroundStyle(.orange).help("The page asked for a sign-in")
-                    case (.idle, .failed(let message)): Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(message)
+                    case (.idle, .wrongPage): Image(systemName: "xmark.circle").foregroundStyle(.secondary)
+                    case (.idle, .needsSignIn): Image(systemName: "lock.fill").foregroundStyle(.orange)
+                    case (.idle, .failed): Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     case (.idle, nil): EmptyView()
                     }
                 }
@@ -257,7 +252,17 @@ private struct ReceiptRow: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(width: 96, alignment: .leading)
-                Text(receipt.subject).lineLimit(1)
+                // The reason stays under the subject after the run, so you can read it without a tooltip.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(receipt.subject).lineLimit(1)
+                    if phase == .idle, let message = result?.message {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .truncationMode(.middle)
+                    }
+                }
                 Spacer()
                 if let amount = receipt.amount { Text(amount).monospacedDigit() }
             }
@@ -267,6 +272,14 @@ private struct ReceiptRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let message = result?.message {
+                Button("Copy Reason") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message, forType: .string)
+                }
+            }
+        }
     }
 }
 

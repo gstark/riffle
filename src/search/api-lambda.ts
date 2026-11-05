@@ -1,8 +1,10 @@
 // Query Lambda entry point, behind a Function URL. See infra/search-api.tf.
 
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import * as lancedb from "@lancedb/lancedb";
+import { createReceipts } from "../receipts/browse.ts";
 import { createSignedInProofs } from "../receipts/signed-in.ts";
 import { openCandidateTables, readCandidates, writeSignedIn } from "../receipts/signed-in-table.ts";
 import { log, requireEnv } from "../shared/runtime.ts";
@@ -19,6 +21,8 @@ import { createS3Source } from "./source.ts";
 const CACHE_MS = 5 * 60_000;
 /** A warm Lambda checks for new table versions at most this often, in seconds. */
 const READ_CONSISTENCY_SECONDS = 30;
+/** A receipt PDF link works for this time, in seconds. */
+const PDF_LINK_SECONDS = 5 * 60;
 
 const secrets = new SecretsManagerClient();
 const tokenSecretId = requireEnv("TOKEN_SECRET_ID");
@@ -80,6 +84,11 @@ export const handler = createApi({
     },
     write: async (row) => writeSignedIn((await getProofTables()).signedIn, row),
     now: () => new Date(),
+  }),
+  receipts: createReceipts({
+    tables: getProofTables,
+    gmailUser: requireEnv("GMAIL_USER"),
+    presign: (key) => getSignedUrl(s3, new GetObjectCommand({ Bucket: archiveBucket, Key: key }), { expiresIn: PDF_LINK_SECONDS }),
   }),
   log,
 });

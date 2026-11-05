@@ -47,22 +47,32 @@ private struct TokenButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(text)
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                // Dotted, 1.5 points thick, about 5 points below the baseline.
-                .overlay(alignment: .bottom) {
-                    HorizontalLine()
-                        .stroke(Theme.ink, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.01, 3.5]))
-                        .frame(height: 1.5)
-                        .offset(y: 1)
-                }
-                .padding(.horizontal, 2)
-                .background(selected ? Theme.selectedToken : .clear, in: RoundedRectangle(cornerRadius: Theme.tokenRadius))
+            TokenLabel(text: text, selected: selected)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Edits this filter")
+    }
+}
+
+/// A filter value in a sentence: Ink text with a dotted underline. The Receipts window uses it for its tokens too.
+struct TokenLabel: View {
+    let text: String
+    let selected: Bool
+
+    var body: some View {
+        Text(text)
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            // Dotted, 1.5 points thick, about 5 points below the baseline.
+            .overlay(alignment: .bottom) {
+                HorizontalLine()
+                    .stroke(Theme.ink, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.01, 3.5]))
+                    .frame(height: 1.5)
+                    .offset(y: 1)
+            }
+            .padding(.horizontal, 2)
+            .background(selected ? Theme.selectedToken : .clear, in: RoundedRectangle(cornerRadius: Theme.tokenRadius))
     }
 }
 

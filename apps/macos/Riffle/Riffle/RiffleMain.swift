@@ -28,15 +28,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
     private var proofs: ProofsModel?
     private var signInWindow: SignInWindowController?
+    private var receipts: ReceiptsModel?
+    private var receiptsWindow: ReceiptsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         EditMenu.install()
         let panel = PanelController(model: SearchModel(store: KeychainConnectionStore()))
         let loader = WebPageLoader()
         let proofs = ProofsModel(store: KeychainConnectionStore(), makeRunner: { ProofRunner(service: $0, loader: loader) })
+        receipts = ReceiptsModel(store: KeychainConnectionStore())
         statusItem = StatusItemController(
             toggle: { panel.toggle() },
             openSettings: { panel.show(settings: true) },
+            openReceipts: { [weak self] in self?.showReceiptsWindow() },
             openProofs: { [weak self] in self?.showSignInWindow() }
         )
         KeyboardShortcuts.onKeyUp(for: .togglePanel) { panel.toggle() }
@@ -50,6 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: ProofsModel.backgroundInterval)
             }
         }
+    }
+
+    private func showReceiptsWindow() {
+        guard let receipts else { return }
+        let window = receiptsWindow ?? ReceiptsWindowController(model: receipts)
+        receiptsWindow = window
+        window.show()
     }
 
     private func showSignInWindow() {

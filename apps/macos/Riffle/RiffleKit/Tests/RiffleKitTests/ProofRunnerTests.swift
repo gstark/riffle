@@ -146,10 +146,15 @@ import Testing
 
         #expect(reports["a:0"] == .stored)
         #expect(reports["b:0"] == .failed("The search service failed."))
-        #expect(reports["c:0"] == .needsSignIn)
+        #expect(reports["c:0"] == .needsSignIn("The page asked for a sign-in at auth.uber.com/login."))
     }
 
-    @Test(arguments: [("wrong_page", ReceiptResult.wrongPage), ("link_failed", .failed("The link gave an error page."))])
+    @Test(arguments: [
+        ("wrong_page", ReceiptResult.wrongPage("The page at uber.com/print/a:0 does not show the total or the order ID. Riffle kept no PDF.")),
+        ("link_failed", .failed("The link gave an error page at uber.com/print/a:0.")),
+        ("blocked", .needsSignIn("The site showed a robot check at uber.com/print/a:0.")),
+        ("login_required", .needsSignIn("The page asked for a sign-in at uber.com/print/a:0.")),
+    ])
     func reportsWhatTheServerSaw(fidelity: String, expected: ReceiptResult) async {
         var reports: [ReceiptResult] = []
 
@@ -158,6 +163,20 @@ import Testing
         }
 
         #expect(reports == [expected])
+    }
+
+    @Test func errorPageShowsItsStatus() {
+        let page = LoadedPage(finalUrl: URL(string: "https://uber.com/trips/a?token=secret")!, status: 404, hasPasswordField: false, text: "")
+        #expect(ProofRunner.result(ProofFidelity("link_failed"), page: page, receipt: receipts[0])
+            == .failed("The link gave an error page (HTTP 404) at uber.com/trips/a."))
+    }
+
+    @Test func reasons() {
+        #expect(ReceiptResult.stored.message == nil)
+        #expect(ReceiptResult.stored.isFinished)
+        #expect(ReceiptResult.wrongPage("x").isFinished)
+        #expect(!ReceiptResult.needsSignIn("x").isFinished)
+        #expect(ReceiptResult.failed("Timed out").message == "Timed out")
     }
 
     @Test func waitsBetweenPages() async {
