@@ -1,5 +1,4 @@
-// The detail column: the merchant and the amount, then two tabs. Receipt: the items, the totals, and the PDF from the
-// merchant. Email: the email, a link to it in Gmail, the related receipts, and the PDF of the email.
+// The detail column: a compact receipt header above the receipt PDF or its related email.
 
 import AppKit
 import RiffleKit
@@ -46,6 +45,13 @@ struct ReceiptDetail: View {
                     .font(.title2.weight(.semibold))
                     .lineLimit(2)
                 Spacer(minLength: 0)
+                if !receipt.items.isEmpty {
+                    Text(receipt.items.map(\.description).joined(separator: ", "))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .help(receipt.items.map(\.description).joined(separator: ", "))
+                }
                 if let total = receipt.signedTotal {
                     Text(Money.format(total, currency: receipt.currency))
                         .font(Theme.receiptAmountFont)
@@ -75,129 +81,26 @@ struct ReceiptDetail: View {
 
     // MARK: Receipt tab
 
-    private var receiptTab: some View {
-        VSplitView {
-            ScrollView {
-                breakdown
-                    .padding(Theme.receiptColumnMargin)
-            }
-            .frame(minHeight: 120, idealHeight: breakdownHeight, maxHeight: .infinity)
-            if receipt.proof == .merchant {
-                ProofPDFView(model: model, receipt: receipt, which: .best, cache: pdfs)
-                    .frame(minHeight: 200, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView(
-                    "No PDF from the merchant",
-                    systemImage: "doc",
-                    description: Text(receipt.hasEmailPdf
-                        ? "Riffle has only the email for this receipt. The Email tab shows it."
-                        : "Riffle has no PDF for this receipt yet. The Email tab opens it in Gmail.")
-                )
-                .frame(minHeight: 200, maxHeight: .infinity)
-            }
+    @ViewBuilder private var receiptTab: some View {
+        if receipt.proof == .merchant {
+            ProofPDFView(model: model, receipt: receipt, which: .best, cache: pdfs)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ContentUnavailableView(
+                "No PDF from the merchant",
+                systemImage: "doc",
+                description: Text(receipt.hasEmailPdf
+                    ? "Riffle has only the email for this receipt. The Email tab shows it."
+                    : "Riffle has no PDF for this receipt yet. The Email tab opens it in Gmail.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    /// Enough height for the items and the totals, so the split starts without a scroll.
-    private var breakdownHeight: CGFloat {
-        let rows = receipt.items.count + [receipt.subtotal, receipt.tax, receipt.shippingCost, receipt.discount, receipt.total].compactMap { $0 }.count
-            + (receipt.plan == nil ? 0 : 1) + (receipt.periodStart == nil ? 0 : 1)
-        return min(360, 2 * Theme.receiptColumnMargin + CGFloat(max(rows, 1)) * 26 + 12)
-    }
-
-    private var breakdown: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 6) {
-            ForEach(Array(receipt.items.enumerated()), id: \.offset) { _, item in
-                GridRow {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(item.description)
-                            .lineLimit(2)
-                        if let quantity = item.quantity, quantity != 1 {
-                            Text(Self.quantityText(item, currency: receipt.currency))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    amountCell(item.total)
-                }
-            }
-            if !receipt.items.isEmpty, hasTotals {
-                Divider()
-                    .gridCellUnsizedAxes(.horizontal)
-            }
-            totalRow("Subtotal", receipt.subtotal)
-            totalRow("Tax", receipt.tax)
-            totalRow("Shipping", receipt.shippingCost)
-            totalRow("Discount", receipt.discount.map { -$0 })
-            totalRow("Total", receipt.total, emphasis: true)
-            if let plan = receipt.plan {
-                textRow("Plan", plan)
-            }
-            if let start = receipt.periodStart {
-                textRow("Period", receipt.periodEnd.map { "\(Self.dayText(start)) to \(Self.dayText($0))" } ?? "From \(Self.dayText(start))")
-            }
-            if receipt.items.isEmpty, !hasTotals {
-                GridRow {
-                    Text("The email gives no items or totals.")
-                        .foregroundStyle(.secondary)
-                        .gridCellColumns(2)
-                }
-            }
-        }
-        .textSelection(.enabled)
-    }
-
-    private var hasTotals: Bool {
-        [receipt.subtotal, receipt.tax, receipt.shippingCost, receipt.discount, receipt.total].contains { $0 != nil }
-    }
-
-    @ViewBuilder
-    private func totalRow(_ label: String, _ minor: Int?, emphasis: Bool = false) -> some View {
-        if let minor {
-            GridRow {
-                Text(label)
-                    .foregroundStyle(emphasis ? .primary : .secondary)
-                    .fontWeight(emphasis ? .semibold : .regular)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                amountCell(minor, emphasis: emphasis)
-            }
-        }
-    }
-
-    private func textRow(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(value)
-                .gridColumnAlignment(.trailing)
-        }
-    }
-
-    private func amountCell(_ minor: Int?, emphasis: Bool = false) -> some View {
-        Text(minor.map { Money.format($0, currency: receipt.currency) } ?? "")
-            .monospacedDigit()
-            .fontWeight(emphasis ? .semibold : .regular)
-            .gridColumnAlignment(.trailing)
-    }
-
-    /// For example "3 at $12.99".
-    private static func quantityText(_ item: ReceiptItem, currency: String?) -> String {
-        let count = item.quantity.map { $0 == $0.rounded() ? String(Int($0)) : String($0) } ?? ""
-        guard let unitPrice = item.unitPrice else { return count }
-        return "\(count) at \(Money.format(unitPrice, currency: currency))"
-    }
-
-    /// "2026-09-28" as "28 Sep 2026". Other text stays as the model wrote it.
-    private static func dayText(_ text: String) -> String {
-        Day(text)?.display ?? text
     }
 
     // MARK: Email tab
 
     private var emailTab: some View {
-        VSplitView {
+        VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -220,7 +123,8 @@ struct ReceiptDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.receiptColumnMargin)
             }
-            .frame(minHeight: 120, idealHeight: 200, maxHeight: .infinity)
+            .frame(maxHeight: 200)
+            Divider()
             if receipt.hasEmailPdf {
                 ProofPDFView(model: model, receipt: receipt, which: .email, cache: pdfs)
                     .frame(minHeight: 200, maxHeight: .infinity)
